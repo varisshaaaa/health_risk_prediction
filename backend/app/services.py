@@ -1,7 +1,9 @@
 import requests
-
+import os
 # Replace with your OpenWeatherMap API key
-API_KEY = "65fddd647c737e3e1150b146c2c9defa"
+API_KEY = os.getenv("OPENWEATHER_API_KEY")
+if not API_KEY:
+    raise ValueError("OPENWEATHER_API_KEY environment variable not set!")
 
 def fetch_weather_aqi(city_name: str) -> dict:
     """Fetch weather & AQI data for a city."""
