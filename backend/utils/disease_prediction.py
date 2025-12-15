@@ -8,7 +8,7 @@ project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.append(project_root)
 
 from disease_catboost_symptoms.utils.prediction import SymptomPredictor
-from disease_catboost_symptoms.data import clean_precautions
+
 
 class DiseaseRiskOrchestrator:
     def __init__(self):
