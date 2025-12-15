@@ -64,13 +64,18 @@ else:
     # --- User Advisory View ---
     st.subheader("Report Your Symptoms")
 
-    # Load symptom list (Hardcoded for demo, normally fetched)
+    # Load symptom list (Dynamically fetched from backend)
+    try:
+        res = requests.get(f"{API_URL}/symptoms")
+        if res.status_code == 200:
+            SYMPTOM_LIST = res.json()
+        else:
+             # Fallback
+            SYMPTOM_LIST = ["fever", "cough", "fatigue", "headache", "nausea", "skin_rash", "joint_pain"]
+    except Exception as e:
+        # Fallback
+        SYMPTOM_LIST = ["fever", "cough", "fatigue", "headache", "nausea", "skin_rash", "joint_pain"]
     # Matching the CSV columns order is critical for the vector
-    SYMPTOM_LIST = [
-        "fever", "cough", "fatigue", "headache", "nausea", 
-        "skin_rash", "joint_pain"
-    ]
-    # Note: This must match the training data columns (minus 'disease') in order.
 
     cols = st.columns(3)
     symptoms_selected = []
@@ -85,17 +90,15 @@ else:
     other_symptoms = st.text_input("Other Symptoms (comma separated)", help="For future learning")
 
     if st.button("Analyze Health Risk", type="primary"):
-        if not any(symptoms_vector):
-            st.warning("Please select at least one symptom.")
-        else:
+        if True: # Allow analyzing even with no symptoms (for demo/AQI check)
             # Prepare payload
             payload = {
                 "age": age,
                 "gender": gender,
                 "city": city,
-                "symptoms": symptoms_vector,
+                "symptoms": symptoms_vector, # backend expects this length
                 "symptom_names": symptoms_selected,
-                "other_symptoms": other_symptoms if other_symptoms else None
+                "other_symptoms": other_symptoms if other_symptoms else ""
             }
             
             with st.spinner("Analyzing symptoms, demographics, and air quality..."):
