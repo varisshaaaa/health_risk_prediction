@@ -104,35 +104,35 @@ else:
     valid_pattern = re.compile(r'^[a-zA-Z][a-zA-Z\s_\-]*$')
 
     # Robust Filter Loop
-    for i, symptom in enumerate(SYMPTOM_LIST):
-        # normalize
-        s_str = str(symptom).strip()
-        s_lower = s_str.lower()
+    # for i, symptom in enumerate(SYMPTOM_LIST):
+    #     # normalize
+    #     s_str = str(symptom).strip()
+    #     s_lower = s_str.lower()
         
-        # Check for explicitly invalid values
-        is_blacklisted = (
-            not s_str or 
-            s_lower == 'nan' or 
-            s_lower == 'none' or 
-            'unnamed' in s_lower
-        )
+    #     # Check for explicitly invalid values
+    #     is_blacklisted = (
+    #         not s_str or 
+    #         s_lower == 'nan' or 
+    #         s_lower == 'none' or 
+    #         'unnamed' in s_lower
+    #     )
         
-        # Check pattern match (must look like a real word)
-        is_malformed = not valid_pattern.match(s_str)
+    #     # Check pattern match (must look like a real word)
+    #     is_malformed = not valid_pattern.match(s_str)
         
-        if is_blacklisted or is_malformed:
-             # Ghost feature: existing in model but hidden from user. Send 0.
-             symptoms_vector.append(0)
-             continue
+    #     if is_blacklisted or is_malformed:
+    #          # Ghost feature: existing in model but hidden from user. Send 0.
+    #          symptoms_vector.append(0)
+    #          continue
              
-        # Display Logic
-        display_name = s_str.replace("_", " ").title()
+    #     # Display Logic
+    #     display_name = s_str.replace("_", " ").title()
         
-        col = cols[i % 3]
-        checked = col.checkbox(display_name, key=f"sym_{i}_{s_str}") # Unique key
+    #     col = cols[i % 3]
+    #     checked = col.checkbox(display_name, key=f"sym_{i}_{s_str}") # Unique key
         
-        symptoms_selected.append(display_name) if checked else None
-        symptoms_vector.append(1 if checked else 0)
+    #     symptoms_selected.append(display_name) if checked else None
+    #     symptoms_vector.append(1 if checked else 0)
 
     other_symptoms = st.text_input("Other Symptoms (comma separated)", help="For future learning")
 
