@@ -12,9 +12,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 # We need backend AND disease_catboost_symptoms (for the model/utils)
 COPY backend ./backend
 COPY disease_catboost_symptoms ./disease_catboost_symptoms
+COPY symptoms_and_disease.csv .
 
 # Expose port
 EXPOSE 8000
 
-# Run command
-CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run training then start app
+CMD python disease_catboost_symptoms/utils/train_model.py && uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}
