@@ -20,7 +20,7 @@ from backend.models import PredictionLog, SymptomLog
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Health Advisory API")
-print("--- STARTING APP v2.5: SMART ADVISORY UPDATE ---")
+print("--- STARTING APP v2.6: DEPLOYMENT FIX RE-TRIGGER ---")
 
 # CORS
 app.add_middleware(

@@ -19,5 +19,5 @@ COPY start_backend.py .
 # Expose port
 EXPOSE 8000
 
-# Run startup script (Training + Server)
-CMD ["python", "start_backend.py"]
+# Run training then start app (Explicit Bash Command)
+CMD ["sh", "-c", "python disease_catboost_symptoms/utils/train_model.py && uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
