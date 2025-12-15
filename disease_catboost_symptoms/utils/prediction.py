@@ -5,7 +5,7 @@ import pandas as pd
 class SymptomPredictor:
     def __init__(self):
         self.BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.MODEL_PATH = os.path.join(self.BASE_DIR, 'models', 'disease_model.cbm')
+        self.MODEL_PATH = os.path.join(self.BASE_DIR, 'models', 'catboost_model.cbm')
         self.model = CatBoostClassifier()
         self.load_model()
 

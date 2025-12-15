@@ -7,7 +7,7 @@ def train_model():
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     DATA_PATH = os.path.join(BASE_DIR, 'data', 'clean_symptoms.csv')
     MODEL_DIR = os.path.join(BASE_DIR, 'models')
-    MODEL_PATH = os.path.join(MODEL_DIR, 'disease_model.cbm')
+    MODEL_PATH = os.path.join(MODEL_DIR, 'catboost_model.cbm')
 
     # Create model directory if not exists
     os.makedirs(MODEL_DIR, exist_ok=True)
