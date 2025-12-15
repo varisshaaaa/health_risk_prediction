@@ -118,8 +118,14 @@ def get_symptom_logs(db: Session = Depends(get_db)):
 def get_symptoms():
     """
     Returns the list of symptoms required by the model.
-    Checks clean_symptoms.csv headers or falls back to known list.
+    Fetches directly from the loaded model to ensure compatibility.
     """
+    if orchestrator and orchestrator.predictor:
+        features = orchestrator.predictor.get_feature_names()
+        if features:
+            return features
+            
+    # Fallback to CSV if model features not available or model not loaded
     try:
         csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'disease_catboost_symptoms', 'data', 'clean_symptoms.csv')
         df = pd.read_csv(csv_path)
@@ -127,7 +133,6 @@ def get_symptoms():
         symptoms = [col for col in df.columns if col.lower() != 'disease']
         return symptoms
     except Exception as e:
-        # Fallback if file missing or error
         print(f"Error loading symptoms: {e}")
         return ["fever", "cough", "fatigue", "headache", "nausea", "skin_rash", "joint_pain"]
 

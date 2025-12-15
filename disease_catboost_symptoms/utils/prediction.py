@@ -15,6 +15,12 @@ class SymptomPredictor:
         else:
             raise FileNotFoundError(f"Model not found at {self.MODEL_PATH}. Please train the model first.")
 
+    def get_feature_names(self):
+        """Returns the list of feature names the model was trained on."""
+        if hasattr(self.model, "feature_names_"):
+            return self.model.feature_names_
+        return []
+
     def predict(self, symptoms_vector):
         """
         symptoms_vector: list or array of binary values representing symptoms
