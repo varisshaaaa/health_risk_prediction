@@ -60,9 +60,15 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     aq_risk = aq_data['risk_score']
 
     # 1. Symptom Prediction
-    pred_result = orchestrator.predictor.predict(request.symptoms)
-    disease = pred_result['disease']
-    symptom_risk = pred_result['confidence']
+    if sum(request.symptoms) == 0:
+        # User selected no symptoms
+        disease = "No Specific Disease Detected"
+        symptom_risk = 0.1 # Base low risk
+        pred_result = {"disease": disease, "confidence": 0.1, "risk_level": "LOW"}
+    else:
+        pred_result = orchestrator.predictor.predict(request.symptoms)
+        disease = pred_result['disease']
+        symptom_risk = pred_result['confidence']
     
     # 2. Demographic Risk
     demo_risk = calculate_demographic_risk(request.age, request.gender)

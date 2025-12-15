@@ -1,5 +1,6 @@
 import streamlit as st
 import requests
+import re
 import pandas as pd
 
 # Backend URL
@@ -98,22 +99,28 @@ else:
     
     st.caption("v2.5 - Smart UI & Advisory") 
 
+    # Valid Symptom Pattern: Begins with letter, contains letters, spaces, underscores, hyphens
+    # Rejects: "None", "nan", "Unnamed: 0", empty strings
+    valid_pattern = re.compile(r'^[a-zA-Z][a-zA-Z\s_\-]*$')
+
     # Robust Filter Loop
     for i, symptom in enumerate(SYMPTOM_LIST):
         # normalize
         s_str = str(symptom).strip()
         s_lower = s_str.lower()
         
-        # Check for invalid values
-        is_invalid = (
+        # Check for explicitly invalid values
+        is_blacklisted = (
             not s_str or 
             s_lower == 'nan' or 
             s_lower == 'none' or 
-            s_lower == 'unnamed' or
-            s_str.startswith("Unnamed")
+            'unnamed' in s_lower
         )
         
-        if is_invalid:
+        # Check pattern match (must look like a real word)
+        is_malformed = not valid_pattern.match(s_str)
+        
+        if is_blacklisted or is_malformed:
              # Ghost feature: existing in model but hidden from user. Send 0.
              symptoms_vector.append(0)
              continue
