@@ -1,9 +1,10 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import sys
 import os
+from sqlalchemy.orm import Session
 
 # Add project root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,6 +12,11 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.utils.fetch_air_quality import get_air_quality_risk
 from backend.utils.demographic_risk import calculate_demographic_risk
 from backend.utils.disease_prediction import DiseaseRiskOrchestrator
+from backend.database import engine, Base, get_db
+from backend.models import PredictionLog, SymptomLog
+
+# Create Tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Health Advisory API")
 
@@ -43,16 +49,13 @@ def read_root():
     return {"status": "online", "message": "Health Advisory System API"}
 
 @app.post("/predict")
-def predict_health_risk(request: PredictionRequest):
+def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db)):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Model not loaded. Please train the model.")
     
-    # Logic to log new symptoms
-    if request.other_symptoms:
-        # Append to a log file for future analysis/training
-        log_path = "new_symptoms_log.csv"
-        with open(log_path, "a") as f:
-            f.write(f"{request.other_symptoms}\n")
+    # 3. Air Quality Risk (Moved up to capture feature for DB)
+    aq_data = get_air_quality_risk(request.city)
+    aq_risk = aq_data['risk_score']
 
     # 1. Symptom Prediction
     pred_result = orchestrator.predictor.predict(request.symptoms)
@@ -62,17 +65,34 @@ def predict_health_risk(request: PredictionRequest):
     # 2. Demographic Risk
     demo_risk = calculate_demographic_risk(request.age, request.gender)
     
-    # 3. Air Quality Risk
-    aq_data = get_air_quality_risk(request.city)
-    aq_risk = aq_data['risk_score']
-    
     # 4. Weighted Aggregation
-    # final_risk_score = 0.6 * symptom_risk + 0.3 * demographic_risk + 0.1 * air_quality_risk
     final_risk = (0.6 * symptom_risk) + (0.3 * demo_risk) + (0.1 * aq_risk)
     
     # 5. Generate Advice
     precautions = orchestrator.get_precautions(disease, final_risk)
     advisory, risk_label = orchestrator.generate_advisory(disease, final_risk, request.symptom_names, precautions)
+    
+    # --- DB LOGGING (Feature Store) ---
+    feature_log = PredictionLog(
+        age=request.age,
+        gender=request.gender,
+        city=request.city,
+        symptoms_vector=request.symptoms,
+        symptom_names=request.symptom_names,
+        air_quality_risk=aq_risk,
+        predicted_disease=disease,
+        risk_score=final_risk,
+        risk_level=risk_label
+    )
+    db.add(feature_log)
+    
+    # Log new symptoms
+    if request.other_symptoms:
+        # Check if exists or just append
+        new_symptom = SymptomLog(symptom_text=request.other_symptoms)
+        db.add(new_symptom)
+        
+    db.commit()
     
     return {
         "disease": disease,
@@ -82,6 +102,16 @@ def predict_health_risk(request: PredictionRequest):
         "advisory": advisory,
         "symptom_match_details": pred_result
     }
+
+@app.get("/logs/features")
+def get_feature_logs(db: Session = Depends(get_db)):
+    logs = db.query(PredictionLog).order_by(PredictionLog.timestamp.desc()).limit(50).all()
+    return logs
+
+@app.get("/logs/symptoms")
+def get_symptom_logs(db: Session = Depends(get_db)):
+    logs = db.query(SymptomLog).order_by(SymptomLog.timestamp.desc()).all()
+    return logs
 
 if __name__ == "__main__":
     import uvicorn
