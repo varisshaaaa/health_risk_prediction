@@ -96,18 +96,33 @@ else:
     # Let's map display names to original keys
     # But wait, to build the vector correctly, we must iterate through SYMPTOM_LIST exactly as received.
     
+    st.caption("v2.5 - Smart UI & Advisory") 
+
+    # Robust Filter Loop
     for i, symptom in enumerate(SYMPTOM_LIST):
-        # Skip invalid ones for display, but what about vector? 
-        # If 'None' or 'nan' is in the model features, we must send 0 for it.
-        if not symptom or str(symptom).lower() == 'nan' or str(symptom).lower() == 'none':
+        # normalize
+        s_str = str(symptom).strip()
+        s_lower = s_str.lower()
+        
+        # Check for invalid values
+        is_invalid = (
+            not s_str or 
+            s_lower == 'nan' or 
+            s_lower == 'none' or 
+            s_lower == 'unnamed' or
+            s_str.startswith("Unnamed")
+        )
+        
+        if is_invalid:
+             # Ghost feature: existing in model but hidden from user. Send 0.
              symptoms_vector.append(0)
              continue
              
         # Display Logic
-        display_name = str(symptom).replace("_", " ").title()
+        display_name = s_str.replace("_", " ").title()
         
         col = cols[i % 3]
-        checked = col.checkbox(display_name, key=symptom)
+        checked = col.checkbox(display_name, key=f"sym_{i}_{s_str}") # Unique key
         
         symptoms_selected.append(display_name) if checked else None
         symptoms_vector.append(1 if checked else 0)
