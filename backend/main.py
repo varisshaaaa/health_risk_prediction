@@ -72,7 +72,7 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     
     # 5. Generate Advice
     precautions = orchestrator.get_precautions(disease, final_risk)
-    advisory, risk_label = orchestrator.generate_advisory(disease, final_risk, request.symptom_names, precautions)
+    advisory, risk_label = orchestrator.generate_advisory(disease, final_risk, request.symptom_names, precautions, aq_data=aq_data)
     
     # --- DB LOGGING (Feature Store) ---
     feature_log = PredictionLog(

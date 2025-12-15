@@ -77,14 +77,39 @@ else:
         SYMPTOM_LIST = ["fever", "cough", "fatigue", "headache", "nausea", "skin_rash", "joint_pain"]
     # Matching the CSV columns order is critical for the vector
 
+    # Filter and Clean Symptom List
+    clean_symptoms = [s for s in SYMPTOM_LIST if s and str(s).lower() != 'nan' and str(s).lower() != 'none']
+    
+    # Sort for better UX
+    clean_symptoms.sort()
+
     cols = st.columns(3)
     symptoms_selected = []
     symptoms_vector = []
-
+    
+    # Create mapping just in case order matters for vector construction
+    # Note: If the backend expects vector in specific order of SYMPTOM_LIST, we must maintain that order.
+    # The current backend uses `get_feature_names()` from model, which has a specific order.
+    # We must iterate over the ORIGINAL (ordered) list from backend to build the vector correctly,
+    # but we can CONTROL the display.
+    
+    # Let's map display names to original keys
+    # But wait, to build the vector correctly, we must iterate through SYMPTOM_LIST exactly as received.
+    
     for i, symptom in enumerate(SYMPTOM_LIST):
+        # Skip invalid ones for display, but what about vector? 
+        # If 'None' or 'nan' is in the model features, we must send 0 for it.
+        if not symptom or str(symptom).lower() == 'nan' or str(symptom).lower() == 'none':
+             symptoms_vector.append(0)
+             continue
+             
+        # Display Logic
+        display_name = str(symptom).replace("_", " ").title()
+        
         col = cols[i % 3]
-        checked = col.checkbox(symptom.capitalize())
-        symptoms_selected.append(symptom) if checked else None
+        checked = col.checkbox(display_name, key=symptom)
+        
+        symptoms_selected.append(display_name) if checked else None
         symptoms_vector.append(1 if checked else 0)
 
     other_symptoms = st.text_input("Other Symptoms (comma separated)", help="For future learning")
