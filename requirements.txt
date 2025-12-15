@@ -1,0 +1,10 @@
+fastapi
+uvicorn
+streamlit
+catboost
+pandas
+scikit-learn
+requests
+python-multipart
+# For deployment
+gunicorn

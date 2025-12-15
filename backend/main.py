@@ -1,70 +1,88 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-import pandas as pd
-from app.model import model, imputer, scaler, features
-from app.services import fetch_weather_aqi, age_gender_risk_percent
+from fastapi.middleware.cors import CORSMiddleware
+from typing import List, Optional
+import sys
+import os
 
-app = FastAPI(title="Health Risk Prediction API")
+# Add project root
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# Allow React frontend
+from backend.utils.fetch_air_quality import get_air_quality_risk
+from backend.utils.demographic_risk import calculate_demographic_risk
+from backend.utils.disease_prediction import DiseaseRiskOrchestrator
+
+app = FastAPI(title="Health Advisory API")
+
+# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # React dev server
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ---------- Pydantic Models ----------
-class PredictRequest(BaseModel):
-    city: str
+# Initialize Orchestrator (Loads model once)
+try:
+    orchestrator = DiseaseRiskOrchestrator()
+except Exception as e:
+    print(f"Warning: Model not found or error loading. Train model first. {e}")
+    orchestrator = None
+
+class PredictionRequest(BaseModel):
     age: int
     gender: str
+    city: str
+    symptoms: List[int] # Binary vector
+    symptom_names: List[str] # For explanation
+    other_symptoms: Optional[str] = None
 
-class PredictResponse(BaseModel):
-    health_score: float
-    age_gender_score: float
-    final_score: float
-    risk_label: str
-
-# ---------- Risk Classification ----------
-def classify_risk(score: float) -> str:
-    if score >= 85:
-        return "🔴 VERY HIGH RISK"
-    elif score >= 70:
-        return "🟠 HIGH RISK"
-    elif score >= 50:
-        return "🟡 MEDIUM RISK"
-    elif score >= 30:
-        return "🟢 LOW RISK"
-    else:
-        return "🟢 VERY LOW RISK"
-
-# ---------- Root ----------
 @app.get("/")
-def root():
-    return {"message": "Health Risk Prediction API. Use /predict endpoint."}
+def read_root():
+    return {"status": "online", "message": "Health Advisory System API"}
 
-# ---------- Prediction ----------
-@app.post("/predict", response_model=PredictResponse)
-def predict(data: PredictRequest):
-    try:
-        weather_input = fetch_weather_aqi(data.city)
-        input_df = pd.DataFrame([weather_input])[features]
-        input_imputed = imputer.transform(input_df)
-        input_scaled = scaler.transform(input_imputed)
+@app.post("/predict")
+def predict_health_risk(request: PredictionRequest):
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Model not loaded. Please train the model.")
+    
+    # Logic to log new symptoms
+    if request.other_symptoms:
+        # Append to a log file for future analysis/training
+        log_path = "new_symptoms_log.csv"
+        with open(log_path, "a") as f:
+            f.write(f"{request.other_symptoms}\n")
 
-        health_score = model.predict(input_scaled)[0]
-        age_gender_score = age_gender_risk_percent(data.age, data.gender)
-        final_score = 0.6 * age_gender_score + 0.4 * health_score
-        risk_label = classify_risk(final_score)
+    # 1. Symptom Prediction
+    pred_result = orchestrator.predictor.predict(request.symptoms)
+    disease = pred_result['disease']
+    symptom_risk = pred_result['confidence']
+    
+    # 2. Demographic Risk
+    demo_risk = calculate_demographic_risk(request.age, request.gender)
+    
+    # 3. Air Quality Risk
+    aq_data = get_air_quality_risk(request.city)
+    aq_risk = aq_data['risk_score']
+    
+    # 4. Weighted Aggregation
+    # final_risk_score = 0.6 * symptom_risk + 0.3 * demographic_risk + 0.1 * air_quality_risk
+    final_risk = (0.6 * symptom_risk) + (0.3 * demo_risk) + (0.1 * aq_risk)
+    
+    # 5. Generate Advice
+    precautions = orchestrator.get_precautions(disease, final_risk)
+    advisory, risk_label = orchestrator.generate_advisory(disease, final_risk, request.symptom_names, precautions)
+    
+    return {
+        "disease": disease,
+        "risk_score": final_risk,
+        "risk_level": risk_label,
+        "air_quality": aq_data,
+        "advisory": advisory,
+        "symptom_match_details": pred_result
+    }
 
-        return PredictResponse(
-            health_score=round(health_score, 2),
-            age_gender_score=round(age_gender_score, 2),
-            final_score=round(final_score, 2),
-            risk_label=risk_label
-        )
-    except Exception as e:
-        return {"error": str(e)}
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

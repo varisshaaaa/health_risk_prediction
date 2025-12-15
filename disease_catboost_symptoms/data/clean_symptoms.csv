@@ -1,0 +1,11 @@
+fever,cough,fatigue,headache,nausea,skin_rash,joint_pain,disease
+1,1,1,1,0,0,0,Flu
+1,0,1,1,1,0,0,Typhoid
+0,1,0,0,0,1,0,Allergy
+1,0,1,1,0,0,1,Dengue
+1,1,1,0,0,0,0,Covid-19
+0,0,1,0,1,0,0,Migraine
+1,1,1,1,1,1,1,Malaria
+0,0,0,0,0,1,0,Fungal Infection
+1,0,0,0,0,0,0,Common Cold
+0,1,1,0,0,0,0,Bronchitis
