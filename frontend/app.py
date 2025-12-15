@@ -2,189 +2,181 @@ import streamlit as st
 import requests
 import re
 import pandas as pd
-
-# Backend URL
-API_URL = "http://localhost:8000"
-# For Railway deployment, this might need to change, but usually handled via env or same-network if using internal URLs in Docker.
-# Since Streamlit runs client-side/browser access, it uses public URL. 
-# We will default to localhost but check env.
 import os
+
+# ---------------- CONFIG ----------------
 API_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:8000")
 
-st.set_page_config(page_title="AI Health Advisor", page_icon="🩺", layout="wide")
+st.set_page_config(
+    page_title="AI Health Advisor",
+    page_icon="🩺",
+    layout="wide"
+)
 
 st.title("🩺 AI-Powered Health Advisory System")
 st.markdown("### Intelligent, Multi-Level Risk Prediction & Advice")
 
-# --- Sidebar: User Info ---
+# ---------------- SIDEBAR ----------------
 with st.sidebar:
     st.header("Mode Selection")
-    mode = st.radio("Select View", ["User Advisory", "Instructor / Admin Dashboard"])
+    mode = st.radio(
+        "Select View",
+        ["User Advisory", "Instructor / Admin Dashboard"]
+    )
     st.divider()
-    
+
     if mode == "User Advisory":
         st.header("Profile & Environment")
         city = st.text_input("City", "New York")
         age = st.number_input("Age", 0, 120, 30)
         gender = st.selectbox("Gender", ["Male", "Female", "Other"])
-        st.info("Air Quality data will be fetched automatically.")
+        st.info("Air Quality data is fetched automatically.")
 
-# --- Main Logic ---
+# ---------------- ADMIN DASHBOARD ----------------
 if mode == "Instructor / Admin Dashboard":
-    st.header("🎓 Instructor Dashboard - Feature Store & Learning Logs")
-    
-    st.subheader("Feature Store (Prediction Logs)")
-    st.markdown("Raw data of inputs (features) and model outputs (predictions).")
+    st.header("🎓 Instructor Dashboard")
+
+    st.subheader("Feature Store Logs")
     if st.button("Refresh Feature Logs"):
         try:
             res = requests.get(f"{API_URL}/logs/features")
             if res.status_code == 200:
-                df = pd.DataFrame(res.json())
-                st.dataframe(df)
+                st.dataframe(pd.DataFrame(res.json()))
             else:
-                st.error("Failed to fetch logs.")
+                st.error("Failed to fetch feature logs.")
         except Exception as e:
-            st.error(f"Error: {e}")
-            
+            st.error(e)
+
     st.divider()
-    
-    st.subheader("Dynamic Learning Logs (New Symptoms)")
-    st.markdown("Symptoms reported by users that are not in the training set.")
+
+    st.subheader("New Symptom Learning Logs")
     if st.button("Refresh Symptom Logs"):
         try:
             res = requests.get(f"{API_URL}/logs/symptoms")
             if res.status_code == 200:
-                df = pd.DataFrame(res.json())
-                st.dataframe(df)
+                st.dataframe(pd.DataFrame(res.json()))
             else:
-                st.error("Failed to fetch logs.")
+                st.error("Failed to fetch symptom logs.")
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(e)
 
+# ---------------- USER ADVISORY ----------------
 else:
-    # --- User Advisory View ---
     st.subheader("Report Your Symptoms")
 
-    # Load symptom list (Dynamically fetched from backend)
+    # -------- FETCH SYMPTOMS FROM BACKEND --------
     try:
         res = requests.get(f"{API_URL}/symptoms")
-        if res.status_code == 200:
-            SYMPTOM_LIST = res.json()
-        else:
-             # Fallback
-            SYMPTOM_LIST = ["fever", "cough", "fatigue", "headache", "nausea", "skin_rash", "joint_pain"]
-    except Exception as e:
-        # Fallback
-        SYMPTOM_LIST = ["fever", "cough", "fatigue", "headache", "nausea", "skin_rash", "joint_pain"]
-    # Matching the CSV columns order is critical for the vector
+        SYMPTOM_LIST = res.json() if res.status_code == 200 else []
+    except:
+        SYMPTOM_LIST = []
 
-    # Filter and Clean Symptom List
-    clean_symptoms = [s for s in SYMPTOM_LIST if s and str(s).lower() != 'nan' and str(s).lower() != 'none']
-    
-    # Sort for better UX
-    clean_symptoms.sort()
+    # Regex for valid symptom names
+    valid_pattern = re.compile(r"^[a-zA-Z][a-zA-Z\s_\-]*$")
 
     cols = st.columns(3)
-    symptoms_selected = []
+    display_idx = 0
+
     symptoms_vector = []
-    
-    # Create mapping just in case order matters for vector construction
-    # Note: If the backend expects vector in specific order of SYMPTOM_LIST, we must maintain that order.
-    # The current backend uses `get_feature_names()` from model, which has a specific order.
-    # We must iterate over the ORIGINAL (ordered) list from backend to build the vector correctly,
-    # but we can CONTROL the display.
-    
-    # Let's map display names to original keys
-    # But wait, to build the vector correctly, we must iterate through SYMPTOM_LIST exactly as received.
-    
-    st.caption("v2.5 - Smart UI & Advisory") 
+    symptoms_selected = []
 
-    # Valid Symptom Pattern: Begins with letter, contains letters, spaces, underscores, hyphens
-    # Rejects: "None", "nan", "Unnamed: 0", empty strings
-    valid_pattern = re.compile(r'^[a-zA-Z][a-zA-Z\s_\-]*$')
+    st.caption("v2.5 – Smart UI & Advisory")
 
-    # Robust Filter Loop
-    # for i, symptom in enumerate(SYMPTOM_LIST):
-    #     # normalize
-    #     s_str = str(symptom).strip()
-    #     s_lower = s_str.lower()
-        
-    #     # Check for explicitly invalid values
-    #     is_blacklisted = (
-    #         not s_str or 
-    #         s_lower == 'nan' or 
-    #         s_lower == 'none' or 
-    #         'unnamed' in s_lower
-    #     )
-        
-    #     # Check pattern match (must look like a real word)
-    #     is_malformed = not valid_pattern.match(s_str)
-        
-    #     if is_blacklisted or is_malformed:
-    #          # Ghost feature: existing in model but hidden from user. Send 0.
-    #          symptoms_vector.append(0)
-    #          continue
-             
-    #     # Display Logic
-    #     display_name = s_str.replace("_", " ").title()
-        
-    #     col = cols[i % 3]
-    #     checked = col.checkbox(display_name, key=f"sym_{i}_{s_str}") # Unique key
-        
-    #     symptoms_selected.append(display_name) if checked else None
-    #     symptoms_vector.append(1 if checked else 0)
+    # -------- MAIN SYMPTOM LOOP --------
+    for i, symptom in enumerate(SYMPTOM_LIST):
+        s = str(symptom).strip()
+        s_lower = s.lower()
 
-    other_symptoms = st.text_input("Other Symptoms (comma separated)", help="For future learning")
+        # Blacklist junk values
+        is_invalid = (
+            not s or
+            s_lower in {"nan", "none"} or
+            "unnamed" in s_lower or
+            not valid_pattern.match(s)
+        )
 
+        if is_invalid:
+            # Keep feature slot but hide from UI
+            symptoms_vector.append(0)
+            continue
+
+        col = cols[display_idx % 3]
+        display_idx += 1
+
+        display_name = s.replace("_", " ").title()
+        checked = col.checkbox(
+            display_name,
+            key=f"sym_{i}_{s}"
+        )
+
+        symptoms_vector.append(1 if checked else 0)
+        if checked:
+            symptoms_selected.append(display_name)
+
+    other_symptoms = st.text_input(
+        "Other Symptoms (comma separated)",
+        help="These help the model learn in future retraining"
+    )
+
+    # -------- PREDICT BUTTON --------
     if st.button("Analyze Health Risk", type="primary"):
-        if True: # Allow analyzing even with no symptoms (for demo/AQI check)
-            # Prepare payload
-            payload = {
-                "age": age,
-                "gender": gender,
-                "city": city,
-                "symptoms": symptoms_vector, # backend expects this length
-                "symptom_names": symptoms_selected,
-                "other_symptoms": other_symptoms if other_symptoms else ""
-            }
-            
-            with st.spinner("Analyzing symptoms, demographics, and air quality..."):
-                try:
-                    response = requests.post(f"{API_URL}/predict", json=payload)
-                    if response.status_code == 200:
-                        result = response.json()
-                        
-                        # Display Results
-                        st.divider()
-                        
-                        # Columns for Risk and AQI
-                        r_col1, r_col2 = st.columns(2)
-                        
-                        risk_level = result['risk_level']
-                        color = "green" if risk_level == "LOW" else "orange" if risk_level == "MEDIUM" else "red"
-                        
-                        with r_col1:
-                            st.markdown(f"### Risk Level: :{color}[{risk_level}]")
-                            st.progress(result['risk_score'])
-                            st.caption(f"Score: {result['risk_score']:.2f}")
+        payload = {
+            "age": age,
+            "gender": gender,
+            "city": city,
+            "symptoms": symptoms_vector,
+            "symptom_names": symptoms_selected,
+            "other_symptoms": other_symptoms or ""
+        }
 
-                        with r_col2:
-                            aq = result['air_quality']
-                            st.metric("Air Quality (AQI)", aq['aqi'], delta_color="inverse")
-                            st.caption(f"Pollutants: PM2.5: {aq['pollutants']['pm2_5']}")
+        with st.spinner("Analyzing health, demographics, and air quality..."):
+            try:
+                response = requests.post(
+                    f"{API_URL}/predict",
+                    json=payload,
+                    timeout=60
+                )
 
-                        st.divider()
-                        st.subheader(f"Diagnosis: {result['disease']}")
-                        
-                        # Human-like Advisory
-                        st.markdown("### 📋 AI Advisory")
-                        st.success(result['advisory'])
-                        
-                    else:
-                        st.error(f"Error: {response.text}")
-                except Exception as e:
-                    st.error(f"Failed to connect to backend: {e}")
-                    st.info("Ensure the backend is running on port 8000.")
+                if response.status_code == 200:
+                    result = response.json()
+
+                    st.divider()
+
+                    r1, r2 = st.columns(2)
+
+                    risk = result["risk_level"]
+                    score = result["risk_score"]
+
+                    color = (
+                        "green" if risk == "LOW"
+                        else "orange" if risk == "MEDIUM"
+                        else "red"
+                    )
+
+                    with r1:
+                        st.markdown(f"### Risk Level: :{color}[{risk}]")
+                        st.progress(score)
+                        st.caption(f"Score: {score:.2f}")
+
+                    with r2:
+                        aq = result["air_quality"]
+                        st.metric("Air Quality (AQI)", aq["aqi"])
+                        st.caption(
+                            f"PM2.5: {aq['pollutants']['pm2_5']}"
+                        )
+
+                    st.divider()
+                    st.subheader(f"Diagnosis: {result['disease']}")
+                    st.success(result["advisory"])
+
+                else:
+                    st.error(response.text)
+
+            except Exception as e:
+                st.error(f"Backend connection failed: {e}")
+                st.info("Ensure backend is running and reachable.")
 
 st.markdown("---")
-st.markdown("*Disclaimer: This is an AI advisory system. Always consult a real doctor.*")
+st.markdown(
+    "*Disclaimer: This system provides AI-based guidance only. Always consult a medical professional.*"
+)
