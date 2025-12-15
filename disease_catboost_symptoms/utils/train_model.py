@@ -5,7 +5,7 @@ import os
 def train_model():
     # Define paths
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    DATA_PATH = os.path.join(BASE_DIR, 'data', 'clean_symptoms.csv')
+    DATA_PATH = os.path.join(BASE_DIR, '..', 'symptoms_and_disease.csv') # Assuming it's in root or check path
     MODEL_DIR = os.path.join(BASE_DIR, 'models')
     MODEL_PATH = os.path.join(MODEL_DIR, 'catboost_model.cbm')
 
@@ -16,8 +16,8 @@ def train_model():
     print(f"Loading data from {DATA_PATH}...")
     df = pd.read_csv(DATA_PATH)
     
-    X = df.drop('disease', axis=1)
-    y = df['disease']
+    X = df.drop('Disease', axis=1)
+    y = df['Disease']
 
     # Train Model
     print("Training CatBoost Classifier...")
