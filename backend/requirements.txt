@@ -13,3 +13,4 @@ apscheduler
 python-multipart
 streamlit
 plotly
+python-dotenv
