@@ -1,6 +1,13 @@
+import os
+import sys
+
+# Ensure project root is in sys.path for backend imports
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # disease_catboost_symptoms
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
+sys.path.append(PROJECT_ROOT)
+
 import pandas as pd
 from catboost import CatBoostClassifier
-import os
 
 def train_model():
     # Define paths

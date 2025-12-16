@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
@@ -78,9 +78,7 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     aq_data = get_air_quality_risk(request.city)
     aq_risk_norm = aq_data['risk_score'] # 0.0 - 1.0
 
-from fastapi import BackgroundTasks
-
-# 2. Symptom Prediction (50%)
+    # 2. Symptom Prediction (50%)
     if sum(request.symptoms) == 0:
         disease = "No Specific Disease Detected"
         symptom_risk_norm = 0.1
