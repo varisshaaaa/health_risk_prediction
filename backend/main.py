@@ -110,21 +110,29 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
     
     # Trigger Dynamic Learning (Background)
     if new_symptoms:
-        background_tasks.add_task(handle_new_symptoms_bg, new_symptoms)
+        # Pass native python list
+        background_tasks.add_task(handle_new_symptoms_bg, list(new_symptoms))
 
     # 2. Disease Prediction (Weighted & Severity Logic)
-    # Get top prediction
-    predictions = orchestrator.predict_diseases(matched_symptoms, top_n=1)
-    
-    if not predictions:
-        # Fallback if no predictions
-        best_pred = {"disease": "Unknown Condition", "probability": 10, "severity": "Low", "matched_symptoms": []}
-    else:
-        best_pred = predictions[0]
+    try:
+        # Get top prediction
+        predictions = orchestrator.predict_diseases(matched_symptoms, top_n=1)
+        
+        if not predictions:
+            # Fallback if no predictions
+            best_pred = {"disease": "Unknown Condition", "probability": 10, "severity": "Low", "matched_symptoms": []}
+        else:
+            best_pred = predictions[0]
 
-    disease = best_pred['disease']
-    symptom_probability = best_pred['probability'] # 0-100
-    matched_list = best_pred.get('matched_symptoms', [])
+        disease = best_pred['disease']
+        symptom_probability = best_pred['probability'] # 0-100
+        matched_list = best_pred.get('matched_symptoms', [])
+    except Exception as e:
+        print(f"Prediction logic error: {e}")
+        disease = "Error in Calculation"
+        symptom_probability = 0
+        best_pred = {"severity": "Low"}
+        matched_list = []
 
     # 3. Demographic Risk
     demo_risk_norm = calculate_demographic_risk(request.age, request.gender) # 0-1
@@ -159,25 +167,28 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
     )
 
     # 8. Log to DB
-    log_entry = PredictionLog(
-        age=request.age,
-        gender=request.gender,
-        city=request.city,
-        symptoms_vector=[], # We might not store the full binary vector anymore as it helps less than names
-        symptom_names=matched_list, 
-        
-        symptom_risk=symptom_probability/100,
-        demographic_risk=demo_risk_norm,
-        air_quality_risk=aq_risk_norm,
-        
-        predicted_disease=disease,
-        risk_score=final_score,
-        risk_level=best_pred['severity'] # Using severity as the level label
-    )
-    # Handle schema mismatch if 'risk_level' expects string LOW/MED/HIGH which 'severity' provides
-    
-    db.add(log_entry)
-    db.commit()
+    # Fix: Convert numpy integers/floats to Python native types to avoid Postgres "schema np does not exist" error
+    try:
+        log_entry = PredictionLog(
+            age=int(request.age), # Ensure int
+            gender=str(request.gender),
+            city=str(request.city),
+            symptoms_vector=[], 
+            symptom_names=[str(s) for s in matched_list], # Ensure list of strings
+            
+            symptom_risk=float(symptom_probability/100), # Ensure float
+            demographic_risk=float(demo_risk_norm),      # Ensure float
+            air_quality_risk=float(aq_risk_norm),        # Ensure float
+            
+            predicted_disease=str(disease),
+            risk_score=float(final_score),               # Ensure float
+            risk_level=str(best_pred['severity'])
+        )
+        db.add(log_entry)
+        db.commit()
+    except Exception as e:
+        print(f"DB Logging Error (Non-fatal): {e}")
+        db.rollback()
 
     return {
         "disease": disease,

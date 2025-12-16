@@ -24,10 +24,20 @@ class DiseaseRiskOrchestrator:
     def load_resources(self):
         """Loads model, encoder, and dataset."""
         try:
-            if os.path.exists(MODEL_PATH) and os.path.exists(ENCODER_PATH):
-                self.model = joblib.load(MODEL_PATH)
-                self.encoder = joblib.load(ENCODER_PATH)
-            
+            if os.path.exists(MODEL_PATH):
+                loaded_data = joblib.load(MODEL_PATH)
+                
+                # Check format
+                if isinstance(loaded_data, dict):
+                    self.model = loaded_data.get('model')
+                    self.encoder = loaded_data.get('encoder')
+                    # self.feature_cols = loaded_data.get('symptom_columns') # Could use this for stricter validation
+                else:
+                    # Legacy fallback
+                    self.model = loaded_data
+                    if os.path.exists(ENCODER_PATH):
+                        self.encoder = joblib.load(ENCODER_PATH)
+
             if os.path.exists(DATA_PATH):
                 self.df = pd.read_csv(DATA_PATH)
                 
@@ -144,5 +154,21 @@ class DiseaseRiskOrchestrator:
                 advisory_parts.append(f"- {p}")
         else:
             advisory_parts.append("\n*Precautions are being fetched... check back shortly.*")
-            
-        return "\n".join(advisory_parts)
+                def get_general_precautions(self, weather=None, air_quality=None):
+        precautions = [
+            "Drink plenty of water",
+            "Get adequate sleep",
+            "Eat balanced meals",
+            "Exercise regularly"
+        ]
+        
+        if weather and weather == "cold":
+            precautions.append("Dress warmly")
+            precautions.append("Avoid cold exposure")
+        
+        if air_quality and air_quality.get('aqi', 0) > 100:
+            precautions.append("Wear mask outdoors")
+            precautions.append("Limit outdoor activities")
+        
+        return precautions
+

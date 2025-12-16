@@ -135,14 +135,23 @@ def train_model(df=None):
     rf_model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42) # Increased depth slightly
     rf_model.fit(X, y_encoded)
 
+    rf_model.fit(X, y_encoded)
+
     # Calculate basic accuracy on training set (or separate test set if we had one)
     score = rf_model.score(X, y_encoded)
     
-    # Save model and label encoder
-    joblib.dump(rf_model, MODEL_PATH)
-    joblib.dump(label_encoder, ENCODER_PATH)
+    # Save model data as requested (Dictionary format)
+    # Allows storing encoder and columns together
+    model_data = {
+        'model': rf_model,
+        'encoder': label_encoder,
+        'symptom_columns': list(X.columns), # Save exact columns for alignment
+        'accuracy': score
+    }
+    joblib.dump(model_data, MODEL_PATH)
 
     print(f"✅ Model retrained. Accuracy: {score:.4f}")
+
     
     # Log History
     history_path = os.path.join(BASE_DIR, "model_history.csv")
