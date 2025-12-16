@@ -1,24 +1,32 @@
+# backend/Dockerfile
 FROM python:3.9-slim
 
 WORKDIR /app
 
-# Copy requirements from root (assuming build context is root or we copy specifically)
-# Best practice for monorepo in Docker compose: contextual build
-COPY backend/requirements.txt .
+# Upgrade pip
+RUN pip install --upgrade pip
 
+# Install NLTK dependencies and others
+COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire project or specific folders
-# We need backend AND disease_catboost_symptoms (for the model/utils)
+# Download NLTK data during build to save runtime startup
+RUN python -m nltk.downloader punkt stopwords
+
+# Copy Dependencies
 COPY backend ./backend
-COPY disease_catboost_symptoms ./disease_catboost_symptoms
 COPY webscraping ./webscraping
 COPY symptoms_and_disease.csv .
+COPY requirements.txt .
 
-COPY start_backend.py .
+# Environment Variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=8000
 
-# Expose port
+# Expose Port
 EXPOSE 8000
 
-# Run training then start app (Explicit Bash Command)
-CMD ["sh", "-c", "python disease_catboost_symptoms/utils/train_model.py && uvicorn backend.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# Start Command
+# 1. We rely on the app's internal startup event to train the model if missing.
+# 2. We just start uvicorn.
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -1,5 +1,4 @@
-version: '3.8'
-
+version: "3.8"
 services:
   backend:
     build:
@@ -7,10 +6,12 @@ services:
       dockerfile: backend/Dockerfile
     ports:
       - "8000:8000"
-    volumes:
-      - .:/app
     environment:
-      - PORT=8000
+      - DATABASE_URL=sqlite:///./health.db
+      # On Railway, DATABASE_URL is injected automatically
+    volumes:
+      - ./backend:/app/backend
+      - ./symptoms_and_disease.csv:/app/symptoms_and_disease.csv
 
   frontend:
     build:
@@ -18,9 +19,5 @@ services:
       dockerfile: frontend/Dockerfile
     ports:
       - "8501:8501"
-    volumes:
-      - .:/app
     environment:
       - NEXT_PUBLIC_API_URL=http://backend:8000
-    depends_on:
-      - backend
