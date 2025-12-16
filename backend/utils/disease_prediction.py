@@ -26,25 +26,28 @@ class DiseaseRiskOrchestrator:
         try:
             if os.path.exists(MODEL_PATH):
                 loaded_data = joblib.load(MODEL_PATH)
-                
-                # Check format
                 if isinstance(loaded_data, dict):
                     self.model = loaded_data.get('model')
                     self.encoder = loaded_data.get('encoder')
-                    # self.feature_cols = loaded_data.get('symptom_columns') # Could use this for stricter validation
                 else:
-                    # Legacy fallback
                     self.model = loaded_data
                     if os.path.exists(ENCODER_PATH):
                         self.encoder = joblib.load(ENCODER_PATH)
 
             if os.path.exists(DATA_PATH):
                 self.df = pd.read_csv(DATA_PATH)
-                
-            self.precautions_df = pd.read_csv(PRECAUTIONS_PATH) if os.path.exists(PRECAUTIONS_PATH) else pd.DataFrame()
+            
+            self.reload_precautions() # Load precautions explicitly
             
         except Exception as e:
             print(f"Error loading resources: {e}")
+
+    def reload_precautions(self):
+        """Reloads precautions from CSV to pick up scraping updates."""
+        if os.path.exists(PRECAUTIONS_PATH):
+            self.precautions_df = pd.read_csv(PRECAUTIONS_PATH)
+        else:
+            self.precautions_df = pd.DataFrame()
 
     def predict_diseases(self, symptoms_input, top_n=5):
         """
@@ -119,13 +122,6 @@ class DiseaseRiskOrchestrator:
 
     def get_precautions_from_csv(self, disease):
         """
-        Fetches precautions from the loaded CSV.
-        """
-        # Reload to capture updates (since dynamic learner updates it)
-        if os.path.exists(PRECAUTIONS_PATH):
-            temp_df = pd.read_csv(PRECAUTIONS_PATH)
-            # Fuzzy or exact match for disease
-            # User's CSV has columns: Disease, Symptom, Precaution
             # We want precautions for the Disease generally
             rows = temp_df[temp_df['Disease'] == disease]
             if not rows.empty:

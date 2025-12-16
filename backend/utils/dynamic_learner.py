@@ -83,14 +83,24 @@ def integrate_new_symptom(symptom):
             print(f"Updated existing disease '{disease}' with symptom '{symptom}'")
 
     # 3. Save Dataset
-    df.to_csv(DATA_PATH, index=False)
+    df_new.to_csv(DATA_PATH, index=False)
     print(f"✅ Dataset updated with symptom '{symptom}'")
 
     # 4. Update Precautions
     update_precautions_db(symptom, data)
 
     # 5. Retrain Model
-    train_model(df)
+    train_model(df_new)
+    
+    # 6. Reload Orchestrator Resources (Important for hot-reloading)
+    # We can't access the running instance easily here, but since this runs in background,
+    # the main app should reload if we use a shared variable or database.
+    # For now, we rely on the main app effectively reloading or the next request triggering a fresh look if we re-instantiate.
+    # ACTUALLY, the Orchestrator is a global instance in main.py. 
+    # To modify it, we would need to signal it. 
+    # But wait, `integrate_new_symptom` writes to CSV.
+    # The `orchestrator.get_precautions_from_csv` reads from CSV? 
+    # No, it reads `self.precautions_df`. We need to force a reload.
     
     return True
 

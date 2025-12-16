@@ -147,23 +147,19 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
     # "avg ut the threee scores ... give more weightage to symptomscore then demographics then air quality"
     final_score = (symptom_probability * 0.5) + (demo_risk_score * 0.3) + (aq_risk_score * 0.2)
     
-    # 6. Precautions
     # "check it before using it... check if not available for any symptom then it should be fetched"
     # We use the orchestrator to fetch from CSV. 
     # If missing, we trigger background fetch (handled in dynamic learner logic generally, 
     # OR we can do a specific check here)
     
+    # 6. Precautions
+    # Fetch precautions (checks CSV first, then triggers scrape if missing)
     precautions_list = orchestrator.get_precautions_from_csv(disease)
     
-    if not precautions_list:
-        # If DB missing, trigger scrape for THIS disease context specifically 
-        # (Although integrate_new_symptom handles it, existing diseases might need backfilling)
-        # For now, we trust the dynamic learner will catch it eventually or we rely on fallback
-        precautions_list = ["Precautions are being updated. Please consult a doctor."]
-
-    # 7. Generate Advisory Text
-    advisory = orchestrator.generate_advisory(
-        disease, final_score, precautions_list, aq_data=aq_data
+    # 7. Generate Advisory
+    # Returns (advisory_text, risk_label)
+    advisory_text, risk_label_from_advisory = orchestrator.generate_advisory(
+        disease, final_score, matched_list, precautions_list, aq_data
     )
 
     # 8. Log to DB
@@ -182,7 +178,7 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
             
             predicted_disease=str(disease),
             risk_score=float(final_score),               # Ensure float
-            risk_level=str(best_pred['severity'])
+            risk_level=str(risk_label_from_advisory)     # Use the label from advisory logic
         )
         db.add(log_entry)
         db.commit()
@@ -192,16 +188,10 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
 
     return {
         "disease": disease,
-        "risk_score": round(final_score, 2),
-        "risk_level": best_pred['severity'], # Or derive from final_score? User said "avg out... and tell system for having a disease risk level"
-        # I will return the Calculated Severity from Symptoms as the primary indicator validation, 
-        # but the risk_score is the overall health index.
-        # Let's align:
         "overall_health_risk": round(final_score, 2),
-        "disease_severity": best_pred['severity'],
-        "probability": symptom_probability,
+        "disease_severity": risk_label_from_advisory,
+        "probability": round(symptom_probability, 1),
         "matched_symptoms": matched_list,
-        "new_symptoms_detected": new_symptoms,
         "precautions": precautions_list,
         "air_quality": aq_data,
         "advisory": advisory

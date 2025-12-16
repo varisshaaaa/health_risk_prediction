@@ -21,13 +21,13 @@ def get_air_quality_risk(city: str):
     """
     Fetches real air quality and uses ML model to predict risk score.
     """
-    api_key = os.getenv("WEATHERMAP_API_KEY")
-    
-    if not api_key:
-        print("Warning: WEATHERMAP_API_KEY not set. Using mock data.")
-        return _get_mock_data(city)
-
     try:
+        api_key = os.getenv("WEATHERMAP_API_KEY")
+        if not api_key:
+            print("Warning: WEATHERMAP_API_KEY not set.")
+            return {"aqi": 0, "status": "N/A (Key Missing)", "risk_score": 0.2}
+
+        # 1. Geocoding API
         # 1. Geocoding API
         geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid={api_key}"
         geo_res = requests.get(geo_url, timeout=5)

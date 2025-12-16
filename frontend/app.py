@@ -126,10 +126,10 @@ with tab1:
                         st.success(f"**🧠 Smart Learning Active**: The system encountered new symptoms `{new_syms}`. \n\n"
                                    f"Initiated web scraping protocol to learn about associated diseases. Database updating in background...")
 
-                    # --- MATCHED SYMPTOMS ---
-                    with st.expander("🔍 Symptom Analysis"):
-                        st.write("Using Fuzzy Matching & NLP, we identified:")
-                        st.write(result.get("matched_symptoms", []))
+                    # --- MATCHED SYMPTOMS (Hidden as per request) ---
+                    # with st.expander("🔍 Symptom Analysis"):
+                    #    st.write("Using Fuzzy Matching & NLP, we identified:")
+                    #    st.write(result.get("matched_symptoms", []))
                     
                     # --- ADVISORY & PRECAUTIONS ---
                     c1, c2 = st.columns([3, 2])
