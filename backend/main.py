@@ -194,7 +194,7 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
         "matched_symptoms": matched_list,
         "precautions": precautions_list,
         "air_quality": aq_data,
-        "advisory": advisory
+        "advisory": advisory_text
     }
 
 @app.get("/logs/symptoms")
