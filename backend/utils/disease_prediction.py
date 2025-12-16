@@ -173,7 +173,5 @@ class DiseaseRiskOrchestrator:
             precautions.append("Limit outdoor activities")
         
         return precautions
-            precautions.append("Limit outdoor activities")
-        
-        return precautions
+
 
