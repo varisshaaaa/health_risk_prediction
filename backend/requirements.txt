@@ -10,3 +10,6 @@ apscheduler
 catboost
 sqlalchemy
 python-dotenv
+scrapy
+beautifulsoup4
+lxml

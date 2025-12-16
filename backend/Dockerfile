@@ -12,6 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # We need backend AND disease_catboost_symptoms (for the model/utils)
 COPY backend ./backend
 COPY disease_catboost_symptoms ./disease_catboost_symptoms
+COPY webscraping ./webscraping
 COPY symptoms_and_disease.csv .
 
 COPY start_backend.py .
