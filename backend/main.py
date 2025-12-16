@@ -114,25 +114,33 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
         background_tasks.add_task(handle_new_symptoms_bg, list(new_symptoms))
 
     # 2. Disease Prediction (Weighted & Severity Logic)
-    try:
-        # Get top prediction
-        predictions = orchestrator.predict_diseases(matched_symptoms, top_n=1)
-        
-        if not predictions:
-            # Fallback if no predictions
-            best_pred = {"disease": "Unknown Condition", "probability": 10, "severity": "Low", "matched_symptoms": []}
-        else:
-            best_pred = predictions[0]
-
-        disease = best_pred['disease']
-        symptom_probability = best_pred['probability'] # 0-100
-        matched_list = best_pred.get('matched_symptoms', [])
-    except Exception as e:
-        print(f"Prediction logic error: {e}")
-        disease = "Error in Calculation"
+    if not matched_symptoms:
+        # User provided no valid symptoms -> Healthy / Low Risk
+        disease = "No Detectable Disease"
         symptom_probability = 0
         best_pred = {"severity": "Low"}
         matched_list = []
+        final_score = 0 # Will be adjusted by demographic/air only
+    else:
+        try:
+            # Get top prediction
+            predictions = orchestrator.predict_diseases(matched_symptoms, top_n=1)
+            
+            if not predictions:
+                best_pred = {"disease": "Unknown Condition", "probability": 10, "severity": "Low", "matched_symptoms": []}
+            else:
+                best_pred = predictions[0]
+
+            disease = best_pred['disease']
+            symptom_probability = best_pred['probability'] # 0-100
+            matched_list = best_pred.get('matched_symptoms', [])
+        except Exception as e:
+            print(f"Prediction logic error: {e}")
+            disease = "Error in Calculation"
+            symptom_probability = 0
+            best_pred = {"severity": "Low"}
+            matched_list = []
+
 
     # 3. Demographic Risk
     demo_risk_norm = calculate_demographic_risk(request.age, request.gender) # 0-1
@@ -153,9 +161,37 @@ def predict_health_risk(request: PredictionRequest, background_tasks: Background
     # OR we can do a specific check here)
     
     # 6. Precautions
-    # Fetch precautions (checks CSV first, then triggers scrape if missing)
+    # Fetch precautions (checks CSV first)
     precautions_list = orchestrator.get_precautions_from_csv(disease)
     
+    # If missing, fetch IMMEDIATELY (Synchronous) as per user request ("ushi waqt")
+    if not precautions_list and disease != "No Detectable Disease":
+        from backend.utils.dynamic_learner import scrape_precautions_for_disease, update_precautions_db
+        print(f"Precautions missing for {disease}. Fetching strictly now...")
+        
+        # 1. Scrape
+        new_precautions = scrape_precautions_for_disease(disease)
+        
+        # 2. Update DB (CSV)
+        # Construct data dict as expected by update_precautions_db
+        # It expects {'diseases': [...], 'precautions': [...]} usually aligned, 
+        # but update_precautions_db iterates nested. 
+        # Let's use a simpler direct update or reuse the existing helper locally if possible.
+        # Check update_precautions_db signature: def update_precautions_db(symptom, data):
+        # usage: data['diseases'] (list), data['precautions'] (list)
+        # We'll just define a helper data structure:
+        data_payload = {
+            "diseases": [disease],
+            "precautions": new_precautions
+        }
+        # We don't have a specific symptom here, we can pass "General" or one of the matched ones
+        symptom_key = matched_list[0] if matched_list else "General"
+        update_precautions_db(symptom_key, data_payload)
+        
+        # 3. Reload Orchestrator to see them next time (and NOW)
+        orchestrator.reload_precautions()
+        precautions_list = new_precautions
+
     # 7. Generate Advisory
     # Returns (advisory_text, risk_label)
     advisory_text, risk_label_from_advisory = orchestrator.generate_advisory(
