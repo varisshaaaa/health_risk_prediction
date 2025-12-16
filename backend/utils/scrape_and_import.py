@@ -13,7 +13,7 @@ SCRAPY_DIR = os.path.join(BASE_DIR, 'webscraping')
 OUTPUT_FILE = os.path.join(SCRAPY_DIR, 'new_precautions.json')
 
 # Import the importer function directly
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 from backend.utils.import_precautions import import_precautions
 
 def scrape_and_import_disease(disease_name):

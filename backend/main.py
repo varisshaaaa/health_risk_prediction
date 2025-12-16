@@ -17,6 +17,7 @@ from backend.utils.disease_prediction import DiseaseRiskOrchestrator
 from backend.utils.retrain import run_retraining_job
 from backend.database import engine, Base, get_db, check_and_migrate_tables
 from backend.models import PredictionLog, SymptomLog, Precaution
+from backend.utils.scrape_and_import import scrape_and_import_disease
 
 # Create Tables
 Base.metadata.create_all(bind=engine)
@@ -116,7 +117,7 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     else:
         risk_label = "CRITICAL"
 
-from backend.utils.scrape_and_import import scrape_and_import_disease
+
 
     # 5. Fetch Precautions from DB
     precautions_objs = []
