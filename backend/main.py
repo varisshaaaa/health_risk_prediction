@@ -87,8 +87,12 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     else:
         pred_result = orchestrator.predictor.predict(request.symptoms)
         
-        # THRESHOLD LOGIC
-        if pred_result['confidence'] < 0.35:
+        # DEBUG LOGGING
+        print(f"DEBUG: Symptoms Sum: {sum(request.symptoms)}")
+        print(f"DEBUG: Prediction: {pred_result['disease']}, Confidence: {pred_result['confidence']}")
+        
+        # THRESHOLD LOGIC (Lowered to 0.25 based on user feedback)
+        if pred_result['confidence'] < 0.25:
             disease = "No Specific Disease Detected"
             symptom_risk_norm = 0.1 # Cap low
         else:
