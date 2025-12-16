@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy requirements from root (assuming build context is root or we copy specifically)
 # Best practice for monorepo in Docker compose: contextual build
-COPY requirements.txt .
+COPY backend/requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 

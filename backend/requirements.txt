@@ -7,3 +7,6 @@ joblib
 requests
 psycopg2-binary
 apscheduler
+catboost
+sqlalchemy
+python-dotenv
