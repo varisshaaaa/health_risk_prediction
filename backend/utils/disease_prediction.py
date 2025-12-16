@@ -154,7 +154,9 @@ class DiseaseRiskOrchestrator:
                 advisory_parts.append(f"- {p}")
         else:
             advisory_parts.append("\n*Precautions are being fetched... check back shortly.*")
-                def get_general_precautions(self, weather=None, air_quality=None):
+        return "\n".join(advisory_parts), risk_label
+
+    def get_general_precautions(self, weather=None, air_quality=None):
         precautions = [
             "Drink plenty of water",
             "Get adequate sleep",
@@ -168,6 +170,9 @@ class DiseaseRiskOrchestrator:
         
         if air_quality and air_quality.get('aqi', 0) > 100:
             precautions.append("Wear mask outdoors")
+            precautions.append("Limit outdoor activities")
+        
+        return precautions
             precautions.append("Limit outdoor activities")
         
         return precautions
