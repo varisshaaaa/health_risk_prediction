@@ -21,7 +21,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest flake8 requests pandas catboost fastapi
+        pip install pytest flake8 requests pandas scikit-learn nltk beautifulsoup4 fastapi uvicorn sqlalchemy psycopg2-binary apscheduler streamlit plotly
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
 

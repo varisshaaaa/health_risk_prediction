@@ -11,6 +11,15 @@ from apscheduler.schedulers.background import BackgroundScheduler
 # Add project root
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# NLTK Setup at Import Time
+import nltk
+nltk_packages = ['punkt', 'stopwords']
+for pkg in nltk_packages:
+    try:
+        nltk.download(pkg, quiet=True)
+    except Exception as e:
+        print(f"Failed to download {pkg}: {e}")
+
 from backend.utils.fetch_air_quality import get_air_quality_risk
 from backend.utils.demographic_risk import calculate_demographic_risk
 from backend.utils.disease_prediction import DiseaseRiskOrchestrator

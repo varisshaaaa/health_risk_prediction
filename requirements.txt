@@ -4,7 +4,7 @@ pandas
 numpy
 scikit-learn
 joblib
-nltk
+nltk==3.8.1
 beautifulsoup4
 requests
 sqlalchemy
