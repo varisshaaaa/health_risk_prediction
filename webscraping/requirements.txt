@@ -1,0 +1,6 @@
+scrapy>=2.5
+beautifulsoup4
+lxml
+scikit-learn
+joblib
+requests

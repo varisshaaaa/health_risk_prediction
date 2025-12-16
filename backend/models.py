@@ -18,7 +18,11 @@ class PredictionLog(Base):
     city = Column(String)
     symptoms_vector = Column(JSON) # Store as JSON array
     symptom_names = Column(JSON)   # Store names for readability
-    air_quality_risk = Column(Float)
+    
+    # 50/30/20 Split Components
+    symptom_risk = Column(Float)      # 50%
+    demographic_risk = Column(Float)  # 30%
+    air_quality_risk = Column(Float)  # 20%
     
     # Outputs (Predictions)
     predicted_disease = Column(String)
@@ -35,3 +39,16 @@ class SymptomLog(Base):
     timestamp = Column(DateTime, default=datetime.utcnow)
     symptom_text = Column(String)
     count = Column(Integer, default=1)
+
+class Precaution(Base):
+    """
+    Scraped precautions data.
+    """
+    __tablename__ = "precautions"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    disease = Column(String, index=True)
+    content = Column(String)
+    severity_level = Column(String) # BASIC, MODERATE, IMPORTANT, URGENT
+    source = Column(String)
+
