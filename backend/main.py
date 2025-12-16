@@ -78,15 +78,23 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     aq_data = get_air_quality_risk(request.city)
     aq_risk_norm = aq_data['risk_score'] # 0.0 - 1.0
 
-    # 2. Symptom Prediction (50%)
+from fastapi import BackgroundTasks
+
+# 2. Symptom Prediction (50%)
     if sum(request.symptoms) == 0:
         disease = "No Specific Disease Detected"
         symptom_risk_norm = 0.1
         pred_result = {"disease": disease, "confidence": 0.1, "risk_level": "LOW"}
     else:
         pred_result = orchestrator.predictor.predict(request.symptoms)
-        disease = pred_result['disease']
-        symptom_risk_norm = pred_result['confidence'] # 0.0 - 1.0
+        
+        # THRESHOLD LOGIC
+        if pred_result['confidence'] < 0.35:
+            disease = "No Specific Disease Detected"
+            symptom_risk_norm = 0.1 # Cap low
+        else:
+            disease = pred_result['disease']
+            symptom_risk_norm = pred_result['confidence'] # 0.0 - 1.0
     
     # 3. Demographic Risk (30%)
     demo_risk_norm = calculate_demographic_risk(request.age, request.gender) # 0.0 - 1.0
@@ -110,40 +118,66 @@ def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db
     else:
         risk_label = "CRITICAL"
 
+from backend.utils.scrape_and_import import scrape_and_import_disease
+
     # 5. Fetch Precautions from DB
-    precautions_query = db.query(Precaution).filter(Precaution.disease.ilike(disease.replace("_", " ")))
+    precautions_objs = []
+    precautions_text = ""
     
-    # Filter based on Severity/Risk
-    # Low -> Basic
-    # Moderate -> Basic, Moderate
-    # High -> Basic, Moderate, Important
-    # Critical -> All
-    
-    if risk_label == "LOW":
+    if disease != "No Specific Disease Detected":
+        precautions_query = db.query(Precaution).filter(Precaution.disease.ilike(disease.replace("_", " ")))
+        
+        # Filter based on Severity/Risk
+        # Low -> Basic
+        # Moderate -> Basic, Moderate
+        # High -> Basic, Moderate, Important
+        # Critical -> All
+        
         target_severities = ["BASIC"]
-    elif risk_label == "MODERATE":
-        target_severities = ["BASIC", "MODERATE"]
-    elif risk_label == "HIGH":
-        target_severities = ["BASIC", "MODERATE", "IMPORTANT"]
+        if risk_label in ["MODERATE", "HIGH", "CRITICAL"]:
+            target_severities.append("MODERATE")
+        if risk_label in ["HIGH", "CRITICAL"]:
+            target_severities.append("IMPORTANT")
+        if risk_label == "CRITICAL":
+            target_severities.append("URGENT")
+            
+        # Try prioritized fetch
+        precautions_objs = precautions_query.filter(Precaution.severity_level.in_(target_severities)).all()
+        
+        # FALLBACK 1: If specific severities missing, get ANY for this disease
+        if not precautions_objs:
+            precautions_objs = precautions_query.limit(5).all()
+            
+        # TRIGGER SCRAPING: If still empty, trigger scraping for next time
+        if not precautions_objs:
+             print(f"SCRAPE TRIGGER: No precautions found for {disease}. Triggering background scrape.")
+             # Trigger the scraper in the background
+             # Note: 'background_tasks' must be added to endpoint arguments
+             # For now, since we didn't add it in func sig, we will just log or assume user adds it
+             # BUT WAIT, I am editing the code, I can add it!
+             # I need to change the function signature in the next step or handle it here if possible.
+             # Actually, since I can't change signature easily in a block replace without rewriting the whole func def,
+             # I will use a direct threading call or just rely on the 'missing_diseases.txt' if I can't add BackgroundTasks easily.
+             
+             # BETTER APPROACH: I will just call the function in a thread to mimic BackgroundTasks if signature change is hard,
+             # OR I will just rewrite the function signature in a separate call?
+             # Let's try to just use the log file for now as the 'robust' way requested by user might need code changes I can't fully certify without signature change.
+             # USER REQUESTED "Complete Web Scraping Flow". Passive log isn't enough.
+             
+             # I will assume I can update the signature in a subsequent call or simple threading here.
+             import threading
+             t = threading.Thread(target=scrape_and_import_disease, args=(disease,))
+             t.start()
+             
+             precautions_text = "Fetching specialized precautions from the web... Check back in 30 seconds."
+    
+    if precautions_objs:
+        precautions_text = "\n".join([f"- {p.content}" for p in precautions_objs])
     else:
-        target_severities = ["BASIC", "MODERATE", "IMPORTANT", "URGENT"]
-        
-    # Note: If no severity labels in DB (imported data might vary), fallback to showing all or limit count
-    # Ideally, scraping classifies them.
-    
-    precautions_list = []
-    # If we have severity logic in DB
-    precautions_objs = precautions_query.filter(Precaution.severity_level.in_(target_severities)).all()
-    if not precautions_objs:
-        # Fallback: Just get all for disease if filtering resulted in empty (or if severities missing)
-        precautions_objs = precautions_query.limit(5).all()
-        
-    precautions_text = "\n".join([f"- {p.content}" for p in precautions_objs])
-    
-    # Fallback if DB empty (use CSV logic from orchestrator as backup-backup)
-    if not precautions_text:
+        # Fallback if DB empty 
         legacy_text = orchestrator.get_precautions(disease, weighted_score)
-        precautions_text = legacy_text
+        if not precautions_text: # Don't overwrite fetching message
+            precautions_text = legacy_text
 
     # 6. Generate Advisory (Validation Logic)
     advisory, _ = orchestrator.generate_advisory(
