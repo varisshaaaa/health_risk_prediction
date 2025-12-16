@@ -15,14 +15,14 @@ from backend.utils.fetch_air_quality import get_air_quality_risk
 from backend.utils.demographic_risk import calculate_demographic_risk
 from backend.utils.disease_prediction import DiseaseRiskOrchestrator
 from backend.utils.retrain import run_retraining_job
-from backend.database import engine, Base, get_db
+from backend.database import engine, Base, get_db, check_and_migrate_tables
 from backend.models import PredictionLog, SymptomLog, Precaution
 
 # Create Tables
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="Health Advisory API")
-print("--- STARTING APP v3.0: FULLY INTEGRATED SYSTEM ---")
+print("--- STARTING APP v3.1: WITH AUTO-MIGRATION ---")
 
 # CORS
 app.add_middleware(
@@ -44,8 +44,11 @@ except Exception as e:
 scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
-def start_scheduler():
-    # Schedule retraining every 5 hours
+def startup_tasks():
+    # 1. Migrate DB
+    check_and_migrate_tables()
+    
+    # 2. Start Scheduler
     scheduler.add_job(run_retraining_job, 'interval', hours=5, id='retrain_model')
     scheduler.start()
     print("Scheduler started: Model retraining set for every 5 hours.")

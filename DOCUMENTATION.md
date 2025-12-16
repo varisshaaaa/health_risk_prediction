@@ -11,7 +11,7 @@ The Health Risk Assessment System is a multi-layered application designed to pro
     *   **Orchestrator**: Validates inputs and triggers parallel risk assessments.
     *   **In-Memory/Feature Store**: Logs inputs for future retraining.
 4.  **Risk Assessment Engine**:
-    *   **Environmental Module**: Fetches live AQI (Air Quality Index) from OpenWeatherMap.
+    *   **Environmental Module**: Fetches live AQI and uses a dedicated **ML Health Impact Predictor** (Random Forest/XGBoost) to calculate specific health risks beyond simple heuristics.
     *   **Demographic Module**: Calculates baseline risk based on Age and Gender.
     *   **ML Prediction Module**: Uses a trained **CatBoost Classifier** to predict disease probability based on symptoms.
 5.  **Weighted Aggregation**: Combines the three risk signals into a single "Total Health Risk Score".

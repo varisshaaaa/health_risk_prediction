@@ -22,9 +22,37 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base = declarative_base()
 
+from sqlalchemy import text, inspect
+
 def get_db():
     db = SessionLocal()
     try:
         yield db
     finally:
         db.close()
+
+def check_and_migrate_tables():
+    """
+    Simple migration script to add missing columns if they don't exist.
+    """
+    try:
+        insp = inspect(engine)
+        if "feature_store" in insp.get_table_names():
+            columns = [c['name'] for c in insp.get_columns("feature_store")]
+            
+            # Columns to check and add
+            new_cols = {
+                "symptom_risk": "FLOAT",
+                "demographic_risk": "FLOAT",
+                "air_quality_risk": "FLOAT"
+            }
+            
+            with engine.connect() as conn:
+                for col, dtype in new_cols.items():
+                    if col not in columns:
+                        print(f"Migrating: Adding column '{col}' to feature_store...")
+                        conn.execute(text(f"ALTER TABLE feature_store ADD COLUMN {col} {dtype}"))
+                        conn.commit()
+    except Exception as e:
+        print(f"Migration Warning: {e}")
+
