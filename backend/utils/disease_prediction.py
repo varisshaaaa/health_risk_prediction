@@ -122,16 +122,24 @@ class DiseaseRiskOrchestrator:
 
     def get_precautions_from_csv(self, disease):
         """
-            # We want precautions for the Disease generally
-            rows = temp_df[temp_df['Disease'] == disease]
-            if not rows.empty:
-                return rows['Precaution'].unique().tolist()
+        Fetches precautions from the loaded CSV.
+        """
+        self.reload_precautions()
+        
+        if self.precautions_df.empty:
+            return []
+            
+        rows = self.precautions_df[self.precautions_df['Disease'] == disease]
+        if not rows.empty:
+            return rows['Precaution'].unique().tolist()
         return []
 
-    def generate_advisory(self, disease, weighted_score, precautions_list, aq_data=None):
+
+    def generate_advisory(self, disease, weighted_score, symptoms_list, precautions_list, aq_data=None):
         """
         Generates the text advisory.
         """
+
         risk_label = "LOW"
         if weighted_score > 40: risk_label = "MODERATE"
         if weighted_score > 70: risk_label = "HIGH"
