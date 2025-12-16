@@ -1,96 +1,148 @@
 import sys
 import os
 import pandas as pd
+import numpy as np
+import joblib
 
-# Add project root to sys.path to allow sibling imports
-current_dir = os.path.dirname(os.path.abspath(__file__))
-project_root = os.path.dirname(os.path.dirname(current_dir))
-sys.path.append(project_root)
+# Add project root to sys.path
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_ROOT = os.path.dirname(BASE_DIR)
 
-from disease_catboost_symptoms.utils.prediction import SymptomPredictor
-
+# Paths
+MODEL_PATH = os.path.join(BASE_DIR, "disease_model.pkl")
+ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder.pkl")
+DATA_PATH = os.path.join(PROJECT_ROOT, "symptoms_and_disease.csv")
+PRECAUTIONS_PATH = os.path.join(PROJECT_ROOT, "backend", "precautions.csv")
 
 class DiseaseRiskOrchestrator:
     def __init__(self):
-        self.predictor = SymptomPredictor()
-        # Load precautions
-        precautions_path = os.path.join(project_root, 'disease_catboost_symptoms', 'data', 'clean_precautions.csv')
-        self.precautions_df = pd.read_csv(precautions_path)
+        self.model = None
+        self.encoder = None
+        self.df = None
+        self.load_resources()
 
-    def get_precautions(self, disease, risk_level):
-        row = self.precautions_df[self.precautions_df['Disease'] == disease]
-        if row.empty:
-            return "Consult a doctor for specific advice."
-        
-        # specific precautions
-        p_list = row.iloc[0, 1:].dropna().tolist()
-        return ", ".join(p_list)
-
-    def process_prediction(self, symptoms, age, gender, aq_risk_score):
-        # 1. Symptom Prediction
-        pred_result = self.predictor.predict(symptoms)
-        disease = pred_result['disease']
-        conf = pred_result['confidence']
-        symptom_risk_score = conf # Use confidence as proxy for risk intensity from symptoms
-
-        # 2. Demographic Risk
-        # (Already calculated in main flow, but could be refined here)
-        # We'll assume the inputs to this function are raw or pre-calculated risks
-        
-        # 3. Final Risk Calculation
-        # Weights: Symptom (0.6), Demo (0.3), AQ (0.1)
-        # Note: 'age' and 'gender' logic handled in demographic_risk.py, expected passed as score? 
-        # Let's assume we get the scores.
-        
-        pass # Logic moved to main or structured here. 
-        # Actually, let's keep this class focused on the Disease part and aggregation.
-
-    def generate_advisory(self, disease, final_risk_score, symptoms_list, precautions_text, aq_data=None):
-        risk_label = "LOW"
-        if final_risk_score > 0.4: risk_label = "MEDIUM"
-        if final_risk_score > 0.7: risk_label = "HIGH"
-
-        # 1. Base Disease Advice
-        advisory_parts = []
-        advisory_parts.append(f"Based on your inputs, the system indicates a potential risk of **{disease}**.")
-        advisory_parts.append(f"Your calculated risk level is **{risk_label}** ({final_risk_score:.2f}).")
-        
-        # 2. Smart Contextual Advice (NLP-like)
-        smart_tips = []
-        
-        # Air Quality Context
-        if aq_data:
-            aqi = aq_data.get('aqi', 0)
-            if aqi > 3: # Poor/Very Poor
-                smart_tips.append("⚠️ **Air Quality Alert**: The air quality is currently poor. Wear a mask outdoors and use an air purifier if possible.")
-            elif aqi == 1:
-                smart_tips.append("✅ Air quality is good, which supports recovery.")
-
-        # Symptom/Disease Specific Context
-        disease_lower = disease.lower().replace("_", " ")
-        if "cold" in disease_lower or "flu" in disease_lower:
-            smart_tips.append("💧 **Stay Hydrated**: Drink plenty of warm fluids.")
-            smart_tips.append("🛌 **Rest**: Ensure you get adequate sleep to boost your immune system.")
-        elif "migraine" in disease_lower:
-            smart_tips.append("🕶️ **Avoid Triggers**: Stay in a quiet, dark room and avoid bright lights.")
-        elif "typhoid" in disease_lower or "diarrhea" in disease_lower:
-            smart_tips.append("🥗 **Hygiene**: Eat only home-cooked, fresh food and drink boiled water.")
+    def load_resources(self):
+        """Loads model, encoder, and dataset."""
+        try:
+            if os.path.exists(MODEL_PATH) and os.path.exists(ENCODER_PATH):
+                self.model = joblib.load(MODEL_PATH)
+                self.encoder = joblib.load(ENCODER_PATH)
             
-        # General advice if risk is low but some symptoms present
-        if final_risk_score < 0.2 and not symptoms_list:
-             advisory_parts = ["You appear to be at **Low Risk**. However, maintaining a healthy lifestyle is always recommended."]
+            if os.path.exists(DATA_PATH):
+                self.df = pd.read_csv(DATA_PATH)
+                
+            self.precautions_df = pd.read_csv(PRECAUTIONS_PATH) if os.path.exists(PRECAUTIONS_PATH) else pd.DataFrame()
+            
+        except Exception as e:
+            print(f"Error loading resources: {e}")
 
-        if smart_tips:
-            advisory_parts.append("\n**💡 Smart Health Tips:**")
-            advisory_parts.extend([f"- {tip}" for tip in smart_tips])
+    def predict_diseases(self, symptoms_input, top_n=5):
+        """
+        User's specific logic for prediction and severity.
+        symptoms_input: list of strings (cleaned symptoms)
+        """
+        if not self.model or self.df is None:
+            return [{"disease": "System Initializing", "probability": 0, "severity": "Low", "matched_symptoms": []}]
 
-        # 3. Standard Precautions
-        if precautions_text and precautions_text.lower() != "nan":
-            cleaned_precautions = precautions_text.replace("_", " ").title()
-            advisory_parts.append(f"\n**🛡️ Standard Precautions for {disease.replace('_', ' ')}:**")
-            advisory_parts.append(cleaned_precautions)
+        # Prepare input vector
+        # Map input symptoms to feature columns
+        feature_cols = self.df.drop("Disease", axis=1).columns
+        X_input = np.zeros(len(feature_cols))
         
-        advisory_parts.append("\n*Please monitor your condition and consult a doctor if symptoms persist.*")
+        matched_symptoms_clean = []
         
-        return "\n".join(advisory_parts), risk_label
+        for i, col in enumerate(feature_cols):
+            # We assume symptoms_input are already cleaned/fuzzy-matched to match columns
+            if col in symptoms_input:
+                X_input[i] = 1
+                matched_symptoms_clean.append(col)
 
+        X_input = X_input.reshape(1, -1)
+        
+        try:
+            probs = self.model.predict_proba(X_input)[0]
+        except Exception as e:
+            print(f"Prediction Error: {e}")
+            return [{"disease": "Error", "probability": 0, "severity": "Low"}]
+
+        top_indices = np.argsort(probs)[-top_n:][::-1]
+        results = []
+
+        for idx in top_indices:
+            disease = self.encoder.inverse_transform([idx])[0]
+            probability = probs[idx] # 0-1
+            
+            # Filter low probability noise
+            if probability < 0.05:
+                continue
+
+            # Severity logic (User specific: match_ratio >= 0.8 is High)
+            try:
+                disease_row = self.df[self.df['Disease'] == disease].iloc[0]
+                total_symptoms = sum(disease_row[1:]) 
+                
+                # Check which of the USER's symptoms actually match this specific disease
+                # (Intersection of user inputs and disease-positive columns)
+                matched_for_this_disease = [s for s in matched_symptoms_clean if disease_row[s] == 1]
+                symptom_count = len(matched_for_this_disease)
+                
+                match_ratio = symptom_count / total_symptoms if total_symptoms else 0
+
+                if match_ratio >= 0.8:
+                    severity = "High"
+                elif match_ratio >= 0.5:
+                    severity = "Moderate"
+                else:
+                    severity = "Low"
+                    
+                results.append({
+                    "disease": disease,
+                    "probability": round(probability * 100, 2), # User wanted percentage
+                    "severity": severity,
+                    "matched_symptoms": matched_for_this_disease # List of strings
+                })
+            except Exception as e:
+                print(f"Severity Calc Error for {disease}: {e}")
+                continue
+
+        return results
+
+    def get_precautions_from_csv(self, disease):
+        """
+        Fetches precautions from the loaded CSV.
+        """
+        # Reload to capture updates (since dynamic learner updates it)
+        if os.path.exists(PRECAUTIONS_PATH):
+            temp_df = pd.read_csv(PRECAUTIONS_PATH)
+            # Fuzzy or exact match for disease
+            # User's CSV has columns: Disease, Symptom, Precaution
+            # We want precautions for the Disease generally
+            rows = temp_df[temp_df['Disease'] == disease]
+            if not rows.empty:
+                return rows['Precaution'].unique().tolist()
+        return []
+
+    def generate_advisory(self, disease, weighted_score, precautions_list, aq_data=None):
+        """
+        Generates the text advisory.
+        """
+        risk_label = "LOW"
+        if weighted_score > 40: risk_label = "MODERATE"
+        if weighted_score > 70: risk_label = "HIGH"
+        if weighted_score > 85: risk_label = "CRITICAL"
+
+        advisory_parts = []
+        advisory_parts.append(f"### Analysis for **{disease}**")
+        advisory_parts.append(f"**Overall Risk Level:** {risk_label} ({weighted_score:.1f}%)")
+        
+        if aq_data:
+            advisory_parts.append(f"**Environmental Context:** Air Quality is {aq_data.get('status', 'Unknown')} (Score: {aq_data.get('risk_score', 0):.2f})")
+
+        if precautions_list:
+            advisory_parts.append("\n**Recommended Precautions:**")
+            for p in precautions_list:
+                advisory_parts.append(f"- {p}")
+        else:
+            advisory_parts.append("\n*Precautions are being fetched... check back shortly.*")
+            
+        return "\n".join(advisory_parts)

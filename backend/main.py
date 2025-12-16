@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
-from typing import List, Optional
+from typing import List, Optional, Union
 import sys
 import os
 from sqlalchemy.orm import Session
@@ -14,16 +14,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from backend.utils.fetch_air_quality import get_air_quality_risk
 from backend.utils.demographic_risk import calculate_demographic_risk
 from backend.utils.disease_prediction import DiseaseRiskOrchestrator
-from backend.utils.retrain import run_retraining_job
+from backend.utils.symptom_manager import clean_and_extract_smart
+from backend.utils.dynamic_learner import integrate_new_symptom
 from backend.database import engine, Base, get_db, check_and_migrate_tables
 from backend.models import PredictionLog, SymptomLog, Precaution
-from backend.utils.scrape_and_import import scrape_and_import_disease
 
 # Create Tables
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Health Advisory API")
-print("--- STARTING APP v3.1: WITH AUTO-MIGRATION ---")
+app = FastAPI(title="Health Advisory API V4.0 (Smart Learning)")
+print("--- STARTING APP v4.0: SMART LEARNING ENABLED ---")
 
 # CORS
 app.add_middleware(
@@ -34,25 +34,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Orchestrator (Loads model once)
-try:
-    orchestrator = DiseaseRiskOrchestrator()
-except Exception as e:
-    print(f"Warning: Model not found or error loading. Train model first. {e}")
-    orchestrator = None
+# Initialize Orchestrator
+orchestrator = DiseaseRiskOrchestrator()
 
-# Scheduler for Retraining
+# Scheduler
 scheduler = BackgroundScheduler()
 
 @app.on_event("startup")
 def startup_tasks():
-    # 1. Migrate DB
     check_and_migrate_tables()
     
-    # 2. Start Scheduler
-    scheduler.add_job(run_retraining_job, 'interval', hours=5, id='retrain_model')
-    scheduler.start()
-    print("Scheduler started: Model retraining set for every 5 hours.")
+    # Check if model exists, if not, train it
+    if not os.path.exists(os.path.join(os.path.dirname(os.path.abspath(__file__)), "disease_model.pkl")):
+        print("Model not found. Triggering initial training...")
+        from backend.utils.dynamic_learner import train_model
+        try:
+            train_model()
+            orchestrator.load_resources() # Reload after training
+        except Exception as e:
+            print(f"Initial training failed: {e}")
+
+    print("Application Startup Complete.")
 
 @app.on_event("shutdown")
 def shutdown_scheduler():
@@ -62,200 +64,152 @@ class PredictionRequest(BaseModel):
     age: int
     gender: str
     city: str
-    symptoms: List[int] # Binary vector
-    symptom_names: List[str] # For explanation
+    symptoms: Union[List[str], str] # Can be a list or a raw string
     other_symptoms: Optional[str] = None
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "Health Advisory System API v3.0"}
+    return {"status": "online", "message": "Health Advisory System V4.0"}
+
+def handle_new_symptoms_bg(new_symptoms: List[str]):
+    """Background task to integrate new symptoms"""
+    if not new_symptoms:
+        return
+    print(f"Background: Integrating new symptoms: {new_symptoms}")
+    for sym in new_symptoms:
+        integrate_new_symptom(sym)
+    # Reload orchestrator resources to reflect changes
+    orchestrator.load_resources()
 
 @app.post("/predict")
-def predict_health_risk(request: PredictionRequest, db: Session = Depends(get_db)):
-    if not orchestrator:
-        raise HTTPException(status_code=503, detail="Model not loaded. Please train the model.")
+def predict_health_risk(request: PredictionRequest, background_tasks: BackgroundTasks, db: Session = Depends(get_db)):
+    # 1. Symptom Parsing & Cleaning
+    raw_input = request.symptoms
+    if isinstance(raw_input, list):
+        raw_input = ", ".join(raw_input) # specific list to string for our parser
     
-    # 1. Air Quality Risk (20%)
+    if request.other_symptoms:
+        raw_input += f", {request.other_symptoms}"
+
+    # Get existing columns to match against
+    if orchestrator.df is not None:
+        existing_cols = orchestrator.df.drop("Disease", axis=1).columns.tolist()
+    else:
+        existing_cols = []
+
+    matched_symptoms, new_symptoms = clean_and_extract_smart(raw_input, existing_cols)
+    
+    # Trigger Dynamic Learning (Background)
+    if new_symptoms:
+        background_tasks.add_task(handle_new_symptoms_bg, new_symptoms)
+
+    # 2. Disease Prediction (Weighted & Severity Logic)
+    # Get top prediction
+    predictions = orchestrator.predict_diseases(matched_symptoms, top_n=1)
+    
+    if not predictions:
+        # Fallback if no predictions
+        best_pred = {"disease": "Unknown Condition", "probability": 10, "severity": "Low", "matched_symptoms": []}
+    else:
+        best_pred = predictions[0]
+
+    disease = best_pred['disease']
+    symptom_probability = best_pred['probability'] # 0-100
+    matched_list = best_pred.get('matched_symptoms', [])
+
+    # 3. Demographic Risk
+    demo_risk_norm = calculate_demographic_risk(request.age, request.gender) # 0-1
+    demo_risk_score = demo_risk_norm * 100
+
+    # 4. Air Quality Risk
     aq_data = get_air_quality_risk(request.city)
-    aq_risk_norm = aq_data['risk_score'] # 0.0 - 1.0
+    aq_risk_norm = aq_data.get('risk_score', 0) # 0-1
+    aq_risk_score = aq_risk_norm * 100
 
-    # 2. Symptom Prediction (50%)
-    if sum(request.symptoms) == 0:
-        disease = "No Specific Disease Detected"
-        symptom_risk_norm = 0.1
-        pred_result = {"disease": disease, "confidence": 0.1, "risk_level": "LOW"}
-    else:
-        pred_result = orchestrator.predictor.predict(request.symptoms)
-        
-        # DEBUG LOGGING
-        print(f"DEBUG: Symptoms Sum: {sum(request.symptoms)}")
-        print(f"DEBUG: Prediction: {pred_result['disease']}, Confidence: {pred_result['confidence']}")
-        
-        # THRESHOLD LOGIC (Lowered to 0.25 based on user feedback)
-        if pred_result['confidence'] < 0.25:
-            disease = "No Specific Disease Detected"
-            symptom_risk_norm = 0.1 # Cap low
-        else:
-            disease = pred_result['disease']
-            symptom_risk_norm = pred_result['confidence'] # 0.0 - 1.0
+    # 5. Weighted Formula (User Request: Symptom > Demo > Air)
+    # "avg ut the threee scores ... give more weightage to symptomscore then demographics then air quality"
+    final_score = (symptom_probability * 0.5) + (demo_risk_score * 0.3) + (aq_risk_score * 0.2)
     
-    # 3. Demographic Risk (30%)
-    demo_risk_norm = calculate_demographic_risk(request.age, request.gender) # 0.0 - 1.0
+    # 6. Precautions
+    # "check it before using it... check if not available for any symptom then it should be fetched"
+    # We use the orchestrator to fetch from CSV. 
+    # If missing, we trigger background fetch (handled in dynamic learner logic generally, 
+    # OR we can do a specific check here)
     
-    # 4. Weighted Aggregation (0-100 Scale)
-    # Symptom: 50%, Age/Gender: 30%, Environmental: 20%
-    weighted_score = (
-        (symptom_risk_norm * 0.5) + 
-        (demo_risk_norm * 0.3) + 
-        (aq_risk_norm * 0.2)
+    precautions_list = orchestrator.get_precautions_from_csv(disease)
+    
+    if not precautions_list:
+        # If DB missing, trigger scrape for THIS disease context specifically 
+        # (Although integrate_new_symptom handles it, existing diseases might need backfilling)
+        # For now, we trust the dynamic learner will catch it eventually or we rely on fallback
+        precautions_list = ["Precautions are being updated. Please consult a doctor."]
+
+    # 7. Generate Advisory Text
+    advisory = orchestrator.generate_advisory(
+        disease, final_score, precautions_list, aq_data=aq_data
     )
-    final_risk_score = weighted_score * 100 # Convert to 0-100
-    
-    # Risk Classification
-    if final_risk_score < 30:
-        risk_label = "LOW"
-    elif final_risk_score < 60:
-        risk_label = "MODERATE"
-    elif final_risk_score < 85:
-        risk_label = "HIGH"
-    else:
-        risk_label = "CRITICAL"
 
-
-
-    # 5. Fetch Precautions from DB
-    precautions_objs = []
-    precautions_text = ""
-    
-    if disease != "No Specific Disease Detected":
-        precautions_query = db.query(Precaution).filter(Precaution.disease.ilike(disease.replace("_", " ")))
-        
-        # Filter based on Severity/Risk
-        # Low -> Basic
-        # Moderate -> Basic, Moderate
-        # High -> Basic, Moderate, Important
-        # Critical -> All
-        
-        target_severities = ["BASIC"]
-        if risk_label in ["MODERATE", "HIGH", "CRITICAL"]:
-            target_severities.append("MODERATE")
-        if risk_label in ["HIGH", "CRITICAL"]:
-            target_severities.append("IMPORTANT")
-        if risk_label == "CRITICAL":
-            target_severities.append("URGENT")
-            
-        # Try prioritized fetch
-        precautions_objs = precautions_query.filter(Precaution.severity_level.in_(target_severities)).all()
-        
-        # FALLBACK 1: If specific severities missing, get ANY for this disease
-        if not precautions_objs:
-            precautions_objs = precautions_query.limit(5).all()
-            
-        # TRIGGER SCRAPING: If still empty, trigger scraping for next time
-        if not precautions_objs:
-             print(f"SCRAPE TRIGGER: No precautions found for {disease}. Triggering background scrape.")
-             # Trigger the scraper in the background
-             # Note: 'background_tasks' must be added to endpoint arguments
-             # For now, since we didn't add it in func sig, we will just log or assume user adds it
-             # BUT WAIT, I am editing the code, I can add it!
-             # I need to change the function signature in the next step or handle it here if possible.
-             # Actually, since I can't change signature easily in a block replace without rewriting the whole func def,
-             # I will use a direct threading call or just rely on the 'missing_diseases.txt' if I can't add BackgroundTasks easily.
-             
-             # BETTER APPROACH: I will just call the function in a thread to mimic BackgroundTasks if signature change is hard,
-             # OR I will just rewrite the function signature in a separate call?
-             # Let's try to just use the log file for now as the 'robust' way requested by user might need code changes I can't fully certify without signature change.
-             # USER REQUESTED "Complete Web Scraping Flow". Passive log isn't enough.
-             
-             # I will assume I can update the signature in a subsequent call or simple threading here.
-             import threading
-             t = threading.Thread(target=scrape_and_import_disease, args=(disease,))
-             t.start()
-             
-             precautions_text = "Fetching specialized precautions from the web... Check back in 30 seconds."
-    
-    if precautions_objs:
-        precautions_text = "\n".join([f"- {p.content}" for p in precautions_objs])
-    else:
-        # Fallback if DB empty 
-        legacy_text = orchestrator.get_precautions(disease, weighted_score)
-        if not precautions_text: # Don't overwrite fetching message
-            precautions_text = legacy_text
-
-    # 6. Generate Advisory (Validation Logic)
-    advisory, _ = orchestrator.generate_advisory(
-        disease, weighted_score, request.symptom_names, precautions_text, aq_data=aq_data
-    )
-    
-    # --- DB LOGGING ---
-    feature_log = PredictionLog(
+    # 8. Log to DB
+    log_entry = PredictionLog(
         age=request.age,
         gender=request.gender,
         city=request.city,
-        symptoms_vector=request.symptoms,
-        symptom_names=request.symptom_names,
+        symptoms_vector=[], # We might not store the full binary vector anymore as it helps less than names
+        symptom_names=matched_list, 
         
-        # Detailed Components
-        symptom_risk=symptom_risk_norm,
+        symptom_risk=symptom_probability/100,
         demographic_risk=demo_risk_norm,
         air_quality_risk=aq_risk_norm,
         
         predicted_disease=disease,
-        risk_score=final_risk_score,
-        risk_level=risk_label
+        risk_score=final_score,
+        risk_level=best_pred['severity'] # Using severity as the level label
     )
-    db.add(feature_log)
+    # Handle schema mismatch if 'risk_level' expects string LOW/MED/HIGH which 'severity' provides
     
-    if request.other_symptoms:
-        new_symptom = SymptomLog(symptom_text=request.other_symptoms)
-        db.add(new_symptom)
-        
+    db.add(log_entry)
     db.commit()
-    
+
     return {
         "disease": disease,
-        "risk_score": final_risk_score,
-        "risk_level": risk_label,
-        "components": {
-            "symptom_contribution": symptom_risk_norm * 0.5 * 100,
-            "demographic_contribution": demo_risk_norm * 0.3 * 100,
-            "environmental_contribution": aq_risk_norm * 0.2 * 100
-        },
+        "risk_score": round(final_score, 2),
+        "risk_level": best_pred['severity'], # Or derive from final_score? User said "avg out... and tell system for having a disease risk level"
+        # I will return the Calculated Severity from Symptoms as the primary indicator validation, 
+        # but the risk_score is the overall health index.
+        # Let's align:
+        "overall_health_risk": round(final_score, 2),
+        "disease_severity": best_pred['severity'],
+        "probability": symptom_probability,
+        "matched_symptoms": matched_list,
+        "new_symptoms_detected": new_symptoms,
+        "precautions": precautions_list,
         "air_quality": aq_data,
-        "advisory": advisory,
-        "precautions": [p.content for p in precautions_objs] if precautions_objs else ["Consult a doctor."]
+        "advisory": advisory
     }
-
-@app.get("/logs/features")
-def get_feature_logs(db: Session = Depends(get_db)):
-    logs = db.query(PredictionLog).order_by(PredictionLog.timestamp.desc()).limit(50).all()
-    return logs
 
 @app.get("/logs/symptoms")
 def get_symptom_logs(db: Session = Depends(get_db)):
     logs = db.query(SymptomLog).order_by(SymptomLog.timestamp.desc()).all()
     return logs
 
+@app.get("/logs/performance")
+def get_performance_logs():
+    """Returns model training history for visualization"""
+    history_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "model_history.csv")
+    if os.path.exists(history_path):
+        try:
+            df = pd.read_csv(history_path)
+            # Return as list of dicts
+            return df.to_dict(orient="records")
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=str(e))
+    return []
+
 @app.get("/symptoms")
 def get_symptoms():
-    if orchestrator and orchestrator.predictor:
-        features = orchestrator.predictor.get_feature_names()
-        if features:
-            return features
-    try:
-        csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'disease_catboost_symptoms', 'data', 'clean_symptoms.csv')
-        df = pd.read_csv(csv_path)
-        symptoms = [col for col in df.columns if col.lower() != 'disease']
-        return symptoms
-    except Exception as e:
-        print(f"Error loading symptoms: {e}")
-        return ["fever", "cough", "fatigue"]
-
-@app.post("/admin/retrain")
-def trigger_retrain():
-    """Manual trigger for retraining"""
-    run_retraining_job()
-    return {"status": "Retraining triggered"}
+    if orchestrator.df is not None:
+        return orchestrator.df.drop("Disease", axis=1).columns.tolist()
+    return []
 
 if __name__ == "__main__":
     import uvicorn

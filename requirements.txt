@@ -1,15 +1,15 @@
 fastapi
 uvicorn
-streamlit
-catboost
 pandas
+numpy
 scikit-learn
+joblib
+nltk
+beautifulsoup4
 requests
-python-multipart
 sqlalchemy
 psycopg2-binary
-python-dotenv
-# For deployment
-gunicorn
-pytest
-httpx
+apscheduler
+python-multipart
+streamlit
+plotly

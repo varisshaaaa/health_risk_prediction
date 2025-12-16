@@ -9,13 +9,13 @@ import plotly.express as px
 API_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:8000")
 
 st.set_page_config(
-    page_title="AI Health Advisor",
+    page_title="AI Health Advisor V4.0",
     page_icon="🩺",
     layout="wide"
 )
 
-st.title("🩺 AI-Powered Health Advisory System v3.0")
-st.caption("Integrated Risk Assessment (Symptoms, Demographics, Environment)")
+st.title("🩺 AI-Powered Health Advisory System V4.0")
+st.caption("Integrated Risk Assessment • Smart Symptom Learning • Dynamic Web Scraping")
 
 # ---------------- TABS ----------------
 tab1, tab2, tab3 = st.tabs(["User Advisory", "Instructor Dashboard", "Model Reports"])
@@ -49,7 +49,6 @@ with tab1:
     # Regex for valid symptom names
     valid_pattern = re.compile(r"^[a-zA-Z][a-zA-Z\s_\-]*$")
     
-    symptoms_vector = []
     symptoms_selected = []
     
     # Grid Layout for Symptoms
@@ -57,10 +56,13 @@ with tab1:
         cols = st.columns(4)
         display_idx = 0
         
-        for i, symptom in enumerate(SYMPTOM_LIST):
+        # Limit display for UI performance, use text input for rest
+        # Assuming typical top 50 common symptoms
+        display_limit = 40 
+        
+        for i, symptom in enumerate(SYMPTOM_LIST[:display_limit]):
             s = str(symptom).strip()
             if not s or s.lower() in {"nan", "none"} or not valid_pattern.match(s):
-                symptoms_vector.append(0)
                 continue
                 
             col = cols[display_idx % 4]
@@ -68,24 +70,26 @@ with tab1:
             
             display_name = s.replace("_", " ").title()
             if col.checkbox(display_name, key=f"sym_{i}"):
-                symptoms_vector.append(1)
-                symptoms_selected.append(display_name)
-            else:
-                symptoms_vector.append(0)
+                symptoms_selected.append(s)
 
-    other_symptoms = st.text_input("Other Symptoms (comma separated)", placeholder="e.g. dizziness, anxiety")
+    st.markdown("---")
+    st.markdown("**Describe Additional Symptoms (Natural Language)**")
+    other_symptoms = st.text_area("Example: 'I have a splitting headache and feeling nausea'", height=80)
     
     if st.button("🚀 Analyze Health Risk", type="primary"):
+        # Combine inputs
+        # For the new API, we can just pass the list of strings + the raw text
+        # and let the backend 'symptom_manager' merge them.
+        
         payload = {
             "age": age,
             "gender": gender,
             "city": city,
-            "symptoms": symptoms_vector,
-            "symptom_names": symptoms_selected,
-            "other_symptoms": other_symptoms or ""
+            "symptoms": symptoms_selected, # List of strings from checkboxes
+            "other_symptoms": other_symptoms # Raw text
         }
         
-        with st.spinner("Calculating weighted risk scores..."):
+        with st.spinner("AI is analyzing symptoms, checking databases, and verifying air quality..."):
             try:
                 response = requests.post(f"{API_URL}/predict", json=payload, timeout=60)
                 
@@ -98,51 +102,56 @@ with tab1:
                     # Top Level Metrics
                     r1, r2, r3 = st.columns(3)
                     with r1:
-                        risk = result["risk_level"]
-                        score = result["risk_score"]
-                        color = "green" if risk == "LOW" else "orange" if risk == "MODERATE" else "red"
-                        if risk == "CRITICAL": color = "red"
+                        # Use overall health risk score
+                        score = result["overall_health_risk"]
+                        severity = result["disease_severity"]
                         
-                        st.metric("Risk Level", risk, delta=f"{score:.1f}%")
+                        color = "green" if score < 40 else "orange" if score < 70 else "red"
+                        
+                        st.metric("Health Risk Score", f"{score:.1f}/100", delta=severity, delta_color="inverse")
                         st.progress(score / 100)
                     
                     with r2:
                         st.metric("Predicted Condition", result["disease"])
+                        st.caption(f"Probability: {result.get('probability', 0):.1f}%")
                     
                     with r3:
                         aq = result["air_quality"]
-                        st.metric("Air Quality (AQI)", f"{aq['aqi']}/5", delta_color="inverse")
+                        st.metric("Air Quality", f"{aq.get('status', 'N/A')}", help=f"AQI: {aq.get('aqi', 0)}")
                     
-                    # --- BREAKDOWN CHART (50/30/20) ---
-                    st.subheader("Risk Contribution Breakdown")
-                    comps = result.get("components", {})
-                    if comps:
-                        chart_data = pd.DataFrame({
-                            "Factor": ["Symptoms (50%)", "Demographics (30%)", "Environment (20%)"],
-                            "Contribution": [
-                                comps.get("symptom_contribution", 0),
-                                comps.get("demographic_contribution", 0),
-                                comps.get("environmental_contribution", 0)
-                            ]
-                        })
-                        fig = px.bar(chart_data, x="Contribution", y="Factor", orientation='h', text_auto='.1f')
-                        st.plotly_chart(fig, use_container_width=True)
+                    # --- SMART LEARNING ALERTS ---
+                    new_syms = result.get("new_symptoms_detected", [])
+                    if new_syms:
+                        st.toast(f"New Symptoms Detected: {len(new_syms)}", icon="🧠")
+                        st.success(f"**🧠 Smart Learning Active**: The system encountered new symptoms `{new_syms}`. \n\n"
+                                   f"Initiated web scraping protocol to learn about associated diseases. Database updating in background...")
+
+                    # --- MATCHED SYMPTOMS ---
+                    with st.expander("🔍 Symptom Analysis"):
+                        st.write("Using Fuzzy Matching & NLP, we identified:")
+                        st.write(result.get("matched_symptoms", []))
                     
                     # --- ADVISORY & PRECAUTIONS ---
-                    c1, c2 = st.columns(2)
+                    c1, c2 = st.columns([3, 2])
                     with c1:
-                        st.success(f"**AI Advisory:**\n\n{result['advisory']}")
+                        st.markdown(result['advisory'])
                     
                     with c2:
-                        st.warning("**Recommended Precautions:**")
-                        for p in result.get("precautions", []):
-                            st.markdown(f"- {p}")
-
+                        st.warning(f"**🛡️ Recommended Precautions for {result['disease']}**")
+                        precautions = result.get("precautions", [])
+                        if precautions and precautions != ["Not available"]:
+                             for p in precautions:
+                                st.markdown(f"- {p}")
+                        else:
+                            st.info("System is currently scraping specific precautions for this condition. Please try again in 1 minute.")
+ 
                 else:
                     st.error(f"Error: {response.text}")
             
             except Exception as e:
+                import traceback
                 st.error(f"Connection Failed: {e}")
+                st.code(traceback.format_exc())
 
 # ==========================================
 # TAB 2: INSTRUCTOR DASHBOARD
@@ -168,36 +177,37 @@ with tab2:
 # TAB 3: MODEL REPORTS
 # ==========================================
 with tab3:
-    st.header("📊 Model Performance & Logs")
+    st.header("📊 Model Metrics")
     
-    st.subheader("Feature Store (Recent Predictions)")
-    if st.button("Refresh Feature Logs"):
+    # FETCH PERFORMANCE
+    try:
+        res = requests.get(f"{API_URL}/logs/performance")
+        if res.status_code == 200:
+            hist_data = res.json()
+            if hist_data:
+                df_hist = pd.DataFrame(hist_data)
+                df_hist['timestamp'] = pd.to_datetime(df_hist['timestamp'])
+                
+                st.subheader("📈 Model Accuracy Over Time")
+                fig = px.line(df_hist, x='timestamp', y='accuracy', markers=True, title="Retraining Performance History")
+                st.plotly_chart(fig, use_container_width=True)
+                
+                st.dataframe(df_hist.sort_values('timestamp', ascending=False))
+            else:
+                st.info("No training history available yet.")
+        else:
+            st.error("Failed to fetch performance logs.")
+            
+    except Exception as e:
+        st.error(f"Error loading graphs: {e}")
+
+    st.divider()
+    
+    st.subheader("Recent Feature Logs")
+    if st.button("Refresh Prediction Logs"):
         try:
             res = requests.get(f"{API_URL}/logs/features")
             if res.status_code == 200:
-                df = pd.DataFrame(res.json())
-                st.dataframe(df)
-            else:
-                st.error("Failed to fetch logs.")
+                st.dataframe(pd.DataFrame(res.json()))
         except Exception as e:
             st.error(e)
-
-    st.subheader("New Symptom Discovery")
-    if st.button("Refresh Symptom Logs"):
-        try:
-            res = requests.get(f"{API_URL}/logs/symptoms")
-            if res.status_code == 200:
-                df = pd.DataFrame(res.json())
-                st.dataframe(df)
-            else:
-                st.error("Failed to fetch logs.")
-        except Exception as e:
-            st.error(e)
-
-    # Placeholder for Model Version History if implemented
-    st.subheader("Model Configuration")
-    st.json({
-        "Algorithm": "CatBoost Classifier",
-        "Risk Weights": {"Symptoms": 0.5, "Demographics": 0.3, "Environment": 0.2},
-        "Retraining Interval": "5 Hours"
-    })
