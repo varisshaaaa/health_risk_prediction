@@ -148,15 +148,15 @@ def integrate_new_symptom(symptom):
 
 def update_precautions_db_entry(disease, symptom, precautions_list):
     """
-    Updates the precautions CSV.
+    Updates the precautions CSV and PostgreSQL Database.
     """
     if not precautions_list:
         return
 
+    # 1. Update CSV (Legacy / ML Backup)
     if os.path.exists(PRECAUTIONS_PATH):
         prec_df = pd.read_csv(PRECAUTIONS_PATH)
     else:
-        # Check seed
         if os.path.exists(SEED_PRECAUTIONS_PATH):
              import shutil
              shutil.copy(SEED_PRECAUTIONS_PATH, PRECAUTIONS_PATH)
@@ -164,17 +164,52 @@ def update_precautions_db_entry(disease, symptom, precautions_list):
         else:
              prec_df = pd.DataFrame(columns=["Disease", "Symptom", "Precaution"])
     
+    new_rows = []
     for prec in precautions_list:
-        # Check duplicates
+        # Check duplicates in CSV
         is_present = ((prec_df['Disease'] == disease) & 
                       (prec_df['Precaution'] == prec)).any()
         
         if not is_present:
-            new_row = {"Disease": disease, "Symptom": symptom, "Precaution": prec}
-            prec_df = pd.concat([prec_df, pd.DataFrame([new_row])], ignore_index=True)
+            new_rows.append({"Disease": disease, "Symptom": symptom, "Precaution": prec})
     
-    prec_df.to_csv(PRECAUTIONS_PATH, index=False)
-    print(f"✅ Precautions dataset updated for {disease}")
+    if new_rows:
+        prec_df = pd.concat([prec_df, pd.DataFrame(new_rows)], ignore_index=True)
+        prec_df.to_csv(PRECAUTIONS_PATH, index=False)
+        print(f"✅ CSV Precautions updated for {disease}")
+
+    # 2. Update PostgreSQL (New Requirement)
+    try:
+        from backend.database import SessionLocal
+        from backend.models import Precaution
+        
+        db = SessionLocal()
+        try:
+            for prec in precautions_list:
+                # Check exist
+                exists = db.query(Precaution).filter(
+                    Precaution.disease == disease, 
+                    Precaution.content == prec
+                ).first()
+                
+                if not exists:
+                    p_entry = Precaution(
+                        disease=disease,
+                        content=prec,
+                        severity_level="MODERATE", # Default
+                        source="WebScraper"
+                    )
+                    db.add(p_entry)
+            db.commit()
+            print(f"✅ SQL Precautions updated for {disease}")
+        except Exception as e:
+            print(f"SQL Update Failed: {e}")
+            db.rollback()
+        finally:
+            db.close()
+            
+    except ImportError:
+        print("Could not import SQL components in dynamic_learner context.")
 
 def train_model(df=None):
     """
