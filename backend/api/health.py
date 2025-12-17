@@ -44,6 +44,13 @@ async def integrate_and_reload(symptom):
 def health_check():
     return {"status": "ok", "service": "Integrated Health Backend"}
 
+@router.get("/symptoms")
+def get_symptoms():
+    """
+    Returns list of all known symptoms for frontend autocomplete/checkboxes.
+    """
+    return symptom_processor.known_symptoms
+
 @router.post("/predict")
 async def predict_health_risk(request: PredictRequest, background_tasks: BackgroundTasks):
     """

@@ -6,7 +6,9 @@ import os
 import plotly.express as px
 
 # ---------------- CONFIG ----------------
-API_URL = os.getenv("NEXT_PUBLIC_API_URL", "http://localhost:8000")
+# ---------------- CONFIG ----------------
+# Support both standard Railway env var and local dev
+API_URL = os.getenv("API_URL") or os.getenv("NEXT_PUBLIC_API_URL") or "http://localhost:8000"
 
 st.set_page_config(
     page_title="AI Health Advisor V4.0",
