@@ -92,6 +92,7 @@ def get_air_quality_risk(city: str):
         return {
             "aqi": aqi,
             "risk_score": min(max(risk_score, 0.0), 1.0),
+            "status": "Good" if aqi == 1 else "Fair" if aqi == 2 else "Moderate" if aqi == 3 else "Poor" if aqi == 4 else "Very Poor",
             "pollutants": comps,
             "source": "OpenWeatherMap + ML"
         }

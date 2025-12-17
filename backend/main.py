@@ -251,6 +251,16 @@ def get_performance_logs():
             raise HTTPException(status_code=500, detail=str(e))
     return []
 
+@app.post("/admin/retrain")
+async def trigger_retraining(background_tasks: BackgroundTasks):
+    """
+    Manually triggers model retraining via background task.
+    """
+    # We pass an empty list of new symptoms, just to trigger the retrain logic 
+    # (or we could have a separate pure retrain function, but handle_new_symptoms_bg does the job)
+    background_tasks.add_task(handle_new_symptoms_bg, [])
+    return {"message": "Retraining triggered successfully"}
+
 @app.get("/symptoms")
 def get_symptoms():
     if orchestrator.df is not None:
