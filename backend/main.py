@@ -2,6 +2,7 @@ from fastapi import FastAPI
 import uvicorn
 import os
 import sys
+from contextlib import asynccontextmanager
 
 # Ensure backend package is in path
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -10,13 +11,22 @@ sys.path.append(os.path.dirname(BASE_DIR))
 # Database
 from backend.database.database import engine, Base
 
-# Initialize Tables
-Base.metadata.create_all(bind=engine)
-
 # API Router
 from backend.api.health import router as health_router
 
-app = FastAPI(title="Integrated Health Risk Predictor")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup: Initialize Tables
+    try:
+        print("Initializing Database Tables...")
+        Base.metadata.create_all(bind=engine)
+        print("Database Tables Initialized.")
+    except Exception as e:
+        print(f"WARNING: Database initialization failed. Functionality may be limited. Error: {e}")
+    yield
+    # Shutdown logic (if any)
+
+app = FastAPI(title="Integrated Health Risk Predictor", lifespan=lifespan)
 
 app.include_router(health_router)
 
