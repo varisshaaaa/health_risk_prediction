@@ -358,9 +358,68 @@ def update_csv_with_new_symptom(symptom, diseases):
     return False
 
 
+def log_new_symptom_to_db(symptom: str) -> bool:
+    """
+    Logs a new symptom to the symptom_logs table in PostgreSQL.
+    Increments count if symptom already exists, otherwise creates new entry.
+    
+    Args:
+        symptom: The symptom text to log
+        
+    Returns:
+        bool: True if successfully logged, False otherwise
+    """
+    if not SessionLocal:
+        logger.warning("Database session not available. Cannot log symptom.")
+        return False
+    
+    if not symptom or not isinstance(symptom, str):
+        logger.warning(f"Invalid symptom for logging: {symptom}")
+        return False
+    
+    symptom_clean = symptom.strip().lower()
+    if len(symptom_clean) < 2:
+        return False
+    
+    db = SessionLocal()
+    try:
+        # Check if symptom already exists
+        existing = db.query(SymptomLog).filter(
+            SymptomLog.symptom_text == symptom_clean
+        ).first()
+        
+        if existing:
+            # Increment count
+            existing.count += 1
+            existing.timestamp = datetime.utcnow()
+            logger.info(f"Symptom '{symptom_clean}' count incremented to {existing.count}")
+        else:
+            # Create new entry
+            new_log = SymptomLog(
+                symptom_text=symptom_clean,
+                count=1,
+                timestamp=datetime.utcnow()
+            )
+            db.add(new_log)
+            logger.info(f"New symptom '{symptom_clean}' logged to database")
+        
+        db.commit()
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error logging symptom to database: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
 def integrate_new_symptom(symptom):
     """
     Main integration pipeline:
+    0. Log new symptom to symptom_logs table
     1. Verify symptom is valid (simpler check)
     2. Scrape associated diseases and precautions
     3. Update SQL database
@@ -370,7 +429,10 @@ def integrate_new_symptom(symptom):
     Returns:
         bool: Success status
     """
-    logger.info(f"🔄 Starting integration for new symptom: {symptom}")
+    logger.info(f"Starting integration for new symptom: {symptom}")
+    
+    # 0. Log the new symptom to database (for tracking/analytics)
+    log_new_symptom_to_db(symptom)
     
     # 1. Verify symptom is real (simplified - won't block on network failures)
     is_valid = verify_symptom_with_service(symptom)
