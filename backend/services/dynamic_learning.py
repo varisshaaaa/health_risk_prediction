@@ -85,6 +85,9 @@ def load_training_data_from_sql():
         return pd.DataFrame(data_list).fillna(0)
     except Exception as e:
         print(f"Error loading from SQL: {e}")
+        print("Fallback: Loading from CSV...")
+        if os.path.exists(DATA_PATH):
+            return pd.read_csv(DATA_PATH)
         return pd.DataFrame()
     finally:
         db.close()

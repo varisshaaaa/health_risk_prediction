@@ -70,14 +70,30 @@ class DiseaseRiskOrchestrator:
                 X_input[i] = 1
                 matched_symptoms_clean.append(col)
 
+        # Quick check: If no symptoms matched at all, don't ask the model (GIGO)
+        if not matched_symptoms_clean:
+             return [{"disease": "Healthy / No Data", "probability": 100, "severity": "Low", "matched_symptoms": []}]
+
         X_input = X_input.reshape(1, -1)
         
         try:
+            # SAFETY CHECK: Model expected features vs Input features
+            # Verify shape if possible.
+            try:
+                # Some sklearn models expose n_features_in_
+                if hasattr(self.model, "n_features_in_"):
+                    if self.model.n_features_in_ != X_input.shape[1]:
+                        print(f"Feature Mismatch! Model expects {self.model.n_features_in_}, got {X_input.shape[1]}")
+                        # Auto-retrain trigger could go here, but for now fallback.
+                        # Attempt to pad/truncate? Risky.
+                        return [{"disease": "System Syncing (Retrain Required)", "probability": 0, "severity": "Low", "matched_symptoms": []}]
+            except:
+                pass
+
             probs = self.model.predict_proba(X_input)[0]
         except Exception as e:
             print(f"Prediction Error: {e}")
-            # If predict_proba fails (some models might not support it), fallback?
-            return [{"disease": "Error", "probability": 0, "severity": "Low"}]
+            return [{"disease": "Unknown Condition", "probability": 0, "severity": "Low", "matched_symptoms": matched_symptoms_clean}]
 
         top_indices = np.argsort(probs)[-top_n:][::-1]
         results = []
@@ -113,6 +129,10 @@ class DiseaseRiskOrchestrator:
             except Exception as e:
                 print(f"Severity Calc Error for {disease}: {e}")
                 continue
+        
+        # Fallback if no disease met expectation
+        if not results:
+             return [{"disease": "Unknown Condition", "probability": 0, "severity": "Low", "matched_symptoms": matched_symptoms_clean}]
 
         return results
 
