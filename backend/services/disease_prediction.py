@@ -4,18 +4,19 @@ import pandas as pd
 import numpy as np
 import joblib
 
-# Add project root to sys.path
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PROJECT_ROOT = os.path.dirname(BASE_DIR)
-
-# Paths - Import from dynamic_learner to ensure single source of truth for persistent paths
-from backend.utils.dynamic_learner import MODEL_PATH, ENCODER_PATH, DATA_PATH, PRECAUTIONS_PATH
+# Paths
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # backend/
+MODEL_PATH = os.path.join(BASE_DIR, 'ml_models', 'symptoms_and_disease.pkl')
+ENCODER_PATH = os.path.join(BASE_DIR, 'ml_models', 'label_encoder.pkl')
+DATA_PATH = os.path.join(BASE_DIR, 'database', 'symptoms_and_disease.csv')
+PRECAUTIONS_PATH = os.path.join(BASE_DIR, 'database', 'Precautions.csv')
 
 class DiseaseRiskOrchestrator:
     def __init__(self):
         self.model = None
         self.encoder = None
         self.df = None
+        self.precautions_df = None
         self.load_resources()
 
     def load_resources(self):
@@ -30,11 +31,15 @@ class DiseaseRiskOrchestrator:
                     self.model = loaded_data
                     if os.path.exists(ENCODER_PATH):
                         self.encoder = joblib.load(ENCODER_PATH)
+            else:
+                print(f"Model not found at {MODEL_PATH}")
 
             if os.path.exists(DATA_PATH):
                 self.df = pd.read_csv(DATA_PATH)
+            else:
+                print(f"Data not found at {DATA_PATH}")
             
-            self.reload_precautions() # Load precautions explicitly
+            self.reload_precautions() 
             
         except Exception as e:
             print(f"Error loading resources: {e}")
@@ -48,21 +53,19 @@ class DiseaseRiskOrchestrator:
 
     def predict_diseases(self, symptoms_input, top_n=5):
         """
-        User's specific logic for prediction and severity.
+        Predicts disease based on symptoms input.
         symptoms_input: list of strings (cleaned symptoms)
         """
         if not self.model or self.df is None:
             return [{"disease": "System Initializing", "probability": 0, "severity": "Low", "matched_symptoms": []}]
 
         # Prepare input vector
-        # Map input symptoms to feature columns
         feature_cols = self.df.drop("Disease", axis=1).columns
         X_input = np.zeros(len(feature_cols))
         
         matched_symptoms_clean = []
         
         for i, col in enumerate(feature_cols):
-            # We assume symptoms_input are already cleaned/fuzzy-matched to match columns
             if col in symptoms_input:
                 X_input[i] = 1
                 matched_symptoms_clean.append(col)
@@ -73,6 +76,7 @@ class DiseaseRiskOrchestrator:
             probs = self.model.predict_proba(X_input)[0]
         except Exception as e:
             print(f"Prediction Error: {e}")
+            # If predict_proba fails (some models might not support it), fallback?
             return [{"disease": "Error", "probability": 0, "severity": "Low"}]
 
         top_indices = np.argsort(probs)[-top_n:][::-1]
@@ -86,30 +90,25 @@ class DiseaseRiskOrchestrator:
             if probability < 0.05:
                 continue
 
-            # Severity logic (User specific: match_ratio >= 0.8 is High)
+            # Severity logic
             try:
                 disease_row = self.df[self.df['Disease'] == disease].iloc[0]
                 total_symptoms = sum(disease_row[1:]) 
                 
-                # Check which of the USER's symptoms actually match this specific disease
-                # (Intersection of user inputs and disease-positive columns)
                 matched_for_this_disease = [s for s in matched_symptoms_clean if disease_row[s] == 1]
                 symptom_count = len(matched_for_this_disease)
                 
                 match_ratio = symptom_count / total_symptoms if total_symptoms else 0
 
-                if match_ratio >= 0.8:
-                    severity = "High"
-                elif match_ratio >= 0.5:
-                    severity = "Moderate"
-                else:
-                    severity = "Low"
+                if match_ratio >= 0.8: severity = "High"
+                elif match_ratio >= 0.5: severity = "Moderate"
+                else: severity = "Low"
                     
                 results.append({
                     "disease": disease,
-                    "probability": round(probability * 100, 2), # User wanted percentage
+                    "probability": round(probability * 100, 2), 
                     "severity": severity,
-                    "matched_symptoms": matched_for_this_disease # List of strings
+                    "matched_symptoms": matched_for_this_disease
                 })
             except Exception as e:
                 print(f"Severity Calc Error for {disease}: {e}")
@@ -117,7 +116,7 @@ class DiseaseRiskOrchestrator:
 
         return results
 
-    def get_precautions_from_csv(self, disease):
+    def get_precautions(self, disease):
         """
         Fetches precautions from the loaded CSV.
         """
@@ -130,49 +129,3 @@ class DiseaseRiskOrchestrator:
         if not rows.empty:
             return rows['Precaution'].unique().tolist()
         return []
-
-
-    def generate_advisory(self, disease, weighted_score, symptoms_list, precautions_list, aq_data=None):
-        """
-        Generates the text advisory.
-        """
-
-        risk_label = "LOW"
-        if weighted_score > 40: risk_label = "MODERATE"
-        if weighted_score > 70: risk_label = "HIGH"
-        if weighted_score > 85: risk_label = "CRITICAL"
-
-        advisory_parts = []
-        advisory_parts.append(f"### Analysis for **{disease}**")
-        advisory_parts.append(f"**Overall Risk Level:** {risk_label} ({weighted_score:.1f}%)")
-        
-        if aq_data:
-            advisory_parts.append(f"**Environmental Context:** Air Quality is {aq_data.get('status', 'Unknown')} (Score: {aq_data.get('risk_score', 0):.2f})")
-
-        if precautions_list:
-            advisory_parts.append("\n**Recommended Precautions:**")
-            for p in precautions_list:
-                advisory_parts.append(f"- {p}")
-        else:
-            advisory_parts.append("\n*Precautions are being fetched... check back shortly.*")
-        return "\n".join(advisory_parts), risk_label
-
-    def get_general_precautions(self, weather=None, air_quality=None):
-        precautions = [
-            "Drink plenty of water",
-            "Get adequate sleep",
-            "Eat balanced meals",
-            "Exercise regularly"
-        ]
-        
-        if weather and weather == "cold":
-            precautions.append("Dress warmly")
-            precautions.append("Avoid cold exposure")
-        
-        if air_quality and air_quality.get('aqi', 0) > 100:
-            precautions.append("Wear mask outdoors")
-            precautions.append("Limit outdoor activities")
-        
-        return precautions
-
-

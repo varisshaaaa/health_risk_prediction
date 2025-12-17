@@ -52,3 +52,15 @@ class Precaution(Base):
     severity_level = Column(String) # BASIC, MODERATE, IMPORTANT, URGENT
     source = Column(String)
 
+class TrainingData(Base):
+    """
+    Persistent training dataset.
+    Replaces symptoms_and_disease.csv
+    Stores each disease and its symptom profile as a JSON map { 'symptom1': 1, 'symptom2': 0, ... }
+    """
+    __tablename__ = "training_data"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    disease = Column(String, index=True, unique=True)
+    symptom_profile = Column(JSON) # {"itch: 1, "fever": 0, ...}
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

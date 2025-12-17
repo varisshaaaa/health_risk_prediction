@@ -9,8 +9,6 @@ beautifulsoup4
 requests
 sqlalchemy
 psycopg2-binary
-apscheduler
 python-multipart
-streamlit
-plotly
+rapidfuzz
 python-dotenv

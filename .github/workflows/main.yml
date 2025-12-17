@@ -24,6 +24,7 @@ jobs:
         pip install pytest flake8 requests pandas scikit-learn nltk beautifulsoup4 fastapi uvicorn sqlalchemy psycopg2-binary apscheduler streamlit plotly
         if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+        if [ -f webscraping/app/requirements.txt ]; then pip install -r webscraping/app/requirements.txt; fi
 
     - name: Lint with flake8
       run: |

@@ -6,20 +6,25 @@ import numpy as np
 import random
 
 # Load Air Quality Model
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL_PATH = os.path.join(BASE_DIR, 'models', 'health_impact_predictor.pkl')
+# Current file: backend/services/health_features.py
+# Root: backend/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
+MODEL_PATH = os.path.join(BASE_DIR, 'ml_models', 'health_impact_predictor.pkl')
 
 aq_model = None
 if os.path.exists(MODEL_PATH):
     try:
         aq_model = joblib.load(MODEL_PATH)
-        print("Loaded Air Quality Health Impact Model.")
+        print(f"Loaded Air Quality Health Impact Model from {MODEL_PATH}")
     except Exception as e:
         print(f"Error loading AQ model: {e}")
+else:
+    print(f"AQ Model not found at {MODEL_PATH}")
 
 def get_air_quality_risk(city: str):
     """
     Fetches real air quality and uses ML model to predict risk score.
+    Returns dictionary with features and risk score (0-1).
     """
     try:
         api_key = os.getenv("WEATHERMAP_API_KEY")
@@ -27,7 +32,6 @@ def get_air_quality_risk(city: str):
             print("Warning: WEATHERMAP_API_KEY not set.")
             return {"aqi": 0, "status": "N/A (Key Missing)", "risk_score": 0.2}
 
-        # 1. Geocoding API
         # 1. Geocoding API
         geo_url = f"http://api.openweathermap.org/geo/1.0/direct?q={city}&limit=1&appid={api_key}"
         geo_res = requests.get(geo_url, timeout=5)
@@ -53,9 +57,6 @@ def get_air_quality_risk(city: str):
         # Model Prediction
         risk_score = 0.5 # Default
         if aq_model:
-            # Prepare features as expected by the model
-            # Assuming model expects: ['AQI', 'PM2.5', 'PM10', 'NO2', ...] or similar
-            # Since we don't know exact features, we try to match likely ones or fallback
             try:
                 # Example feature vector construction
                 features = pd.DataFrame([{
@@ -67,26 +68,22 @@ def get_air_quality_risk(city: str):
                     'O3': comps.get('o3', 0),
                     'SO2': comps.get('so2', 0)
                 }])
-                # Align columns if possible or just predict
-                # If model was trained on different columns, this might fail, necessitating a try/catch fallback
+                
+                # Align columns if possible (not doing strictly here, assuming model robustness or matching columns)
                 prediction = aq_model.predict(features)
-                # If regression -> score, If classification -> map class to score
+                
                 if isinstance(prediction[0], str):
-                    # Map classes like 'High', 'Moderate' to score
                     mapping = {'Very High': 1.0, 'High': 0.8, 'Moderate': 0.5, 'Low': 0.2, 'Good': 0.1}
                     risk_score = mapping.get(prediction[0], 0.5)
                 else:
                     risk_score = float(prediction[0])
-                    # Normalize if needed (assuming output is 0-100 or 0-1)
+                    # Normalize to 0-1
                     if risk_score > 1.0: risk_score /= 100.0
                     
             except Exception as e:
                 print(f"AQ Prediction Error: {e}")
-                # Fallback heuristic
                 risk_score = (aqi - 1) / 4.0
-
         else:
-            # Fallback heuristic
             risk_score = (aqi - 1) / 4.0
         
         return {
@@ -103,7 +100,6 @@ def get_air_quality_risk(city: str):
 
 def _get_mock_data(city):
     """Fallback logic"""
-    # Simulate somewhat realistic range
     aqi = random.randint(1, 5) 
     risk_map = {1: 0.1, 2: 0.3, 3: 0.5, 4: 0.8, 5: 1.0}
     

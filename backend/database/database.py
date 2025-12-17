@@ -7,7 +7,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Railway provides DATABASE_URL
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./health.db")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    # Fallback to local postgres if not set
+    # Defaulting to widely used local dev credentials: postgres/postgres
+    print("WARNING: DATABASE_URL not set. Defaulting to local postgres user 'postgres'.")
+    DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/health_db"
 
 # Fix for some postgres providers using postgres:// instead of postgresql://
 if DATABASE_URL.startswith("postgres://"):
