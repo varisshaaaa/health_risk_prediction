@@ -50,7 +50,7 @@ jobs:
         
       - name: Deploy to Railway
         env:
-          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_TOKEN: "1347e0a2-73d0-48a4-be31-e263fefbbef9"
         run: |
           if [ -z "$RAILWAY_TOKEN" ]; then
             echo "RAILWAY_TOKEN not set, skipping deployment."
