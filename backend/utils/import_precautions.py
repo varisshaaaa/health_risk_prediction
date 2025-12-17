@@ -1,32 +1,43 @@
+"""
+Utility script to import precautions from JSON files into the database.
+"""
+
 import json
 import os
 import sys
-from sqlalchemy.orm import Session
-from backend.database import SessionLocal, engine, Base
-from backend.models import Precaution
 
-# Add project root
+# Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from backend.database.database import SessionLocal
+from backend.database.models import Precaution
+
+try:
+    from backend.utils.logger import get_logger
+    logger = get_logger(__name__)
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+
 
 def import_precautions(json_path):
     """
     Imports precautions from a JSON Lines file or JSON array file into the database.
+    
+    Args:
+        json_path: Path to JSON file containing precautions
     """
     if not os.path.exists(json_path):
-        print(f"File not found: {json_path}")
+        logger.error(f"File not found: {json_path}")
         return
 
     session = SessionLocal()
     try:
-        # Clear existing? Or Update?
-        # For now, let's clear to avoid duplicates if re-importing full set
-        # session.query(Precaution).delete()
-        
         with open(json_path, 'r', encoding='utf-8') as f:
             try:
                 data = json.load(f)
                 if not isinstance(data, list):
-                    print("JSON content is not a list.")
+                    logger.error("JSON content is not a list.")
                     return
             except json.JSONDecodeError:
                 # Try reading as JSON Lines
@@ -52,13 +63,14 @@ def import_precautions(json_path):
                 count += 1
         
         session.commit()
-        print(f"Successfully imported {count} new precautions.")
+        logger.info(f"Successfully imported {count} new precautions.")
         
     except Exception as e:
-        print(f"Error importing precautions: {e}")
+        logger.error(f"Error importing precautions: {e}")
         session.rollback()
     finally:
         session.close()
+
 
 if __name__ == "__main__":
     # Default path assumption

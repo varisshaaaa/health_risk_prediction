@@ -8,6 +8,15 @@ from backend.services.dynamic_learning import integrate_new_symptom, train_model
 from backend.database.database import SessionLocal
 from backend.database.models import PredictionLog
 
+# Import logger
+try:
+    from backend.utils.logger import get_logger, log_prediction
+    logger = get_logger(__name__)
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    log_prediction = None
+
 router = APIRouter()
 
 # --- Initialize Services ---
@@ -21,8 +30,8 @@ class PredictRequest(BaseModel):
     age: int
     gender: str
     city: str
-    checked_symptoms: list[str] = []
-    free_text_symptoms: str = ""
+    symptoms: list[str] = []           # Checkboxes from frontend
+    other_symptoms: str = ""           # Free text input
 
 async def integrate_and_reload(symptom):
     """
@@ -37,7 +46,7 @@ async def integrate_and_reload(symptom):
             if disease_orchestrator.df is not None:
                 symptom_processor.known_symptoms = [c for c in disease_orchestrator.df.columns if c != 'Disease']
     except Exception as e:
-        print(f"Background learning failed for {symptom}: {e}")
+        logger.error(f"Background learning failed for {symptom}: {e}")
 
 # --- Core Endpoints ---
 
@@ -66,8 +75,8 @@ async def predict_health_risk(request: PredictRequest, background_tasks: Backgro
     demo_risk = calculate_demographic_risk(request.age, request.gender) # 0-1
     
     # 3. Symptom Processing & Disease Prediction
-    # Combine checked + free text
-    matched, new_candidates = symptom_processor.extract_symptoms(request.checked_symptoms, request.free_text_symptoms)
+    # Combine checked symptoms + free text
+    matched, new_candidates = symptom_processor.extract_symptoms(request.symptoms, request.other_symptoms)
     
     # Predict Disease
     disease_results = disease_orchestrator.predict_diseases(matched, top_n=3)
@@ -96,7 +105,7 @@ async def predict_health_risk(request: PredictRequest, background_tasks: Backgro
     
     # Dynamic Learning: Handle new symptoms in background
     if new_candidates:
-        print(f"New symptoms detected: {new_candidates}")
+        logger.info(f"New symptoms detected: {new_candidates}")
         for s in new_candidates:
             background_tasks.add_task(integrate_and_reload, s)
 
@@ -121,7 +130,7 @@ async def predict_health_risk(request: PredictRequest, background_tasks: Backgro
             db.commit()
             db.close()
     except Exception as e:
-        print(f"Logging failed: {e}")
+        logger.warning(f"Prediction logging failed: {e}")
 
     # Construct Advisory
     advisory = f"### Risk Level: {risk_level}\n"
@@ -203,11 +212,12 @@ def release_retraining(background_tasks: BackgroundTasks):
     Manually triggers model retraining from the dashboard.
     """
     def _train_task():
-        print("Manual retraining triggered...")
+        logger.info("Manual retraining triggered...")
         df = load_training_data_from_sql()
         if not df.empty:
             train_model(df)
             disease_orchestrator.load_resources()
+            logger.info("Manual retraining completed.")
             
     background_tasks.add_task(_train_task)
     return {"status": "Retraining started in background"}

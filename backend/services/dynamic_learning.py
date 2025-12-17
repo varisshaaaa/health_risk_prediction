@@ -1,45 +1,56 @@
+"""
+Dynamic Learning Module
+Handles new symptom detection, verification, web scraping, and model retraining.
+"""
+
 import pandas as pd
-import numpy as np
-import requests
-import joblib
-from sklearn.preprocessing import LabelEncoder
-from sklearn.ensemble import RandomForestClassifier
 import os
 import sys
+from datetime import datetime
 
 # Paths
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) # backend/
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # backend/
 DATA_PATH = os.path.join(BASE_DIR, 'database', 'symptoms_and_disease.csv')
 PRECAUTIONS_PATH = os.path.join(BASE_DIR, 'database', 'Precautions.csv')
 MODEL_PATH = os.path.join(BASE_DIR, 'ml_models', 'symptoms_and_disease.pkl')
 ENCODER_PATH = os.path.join(BASE_DIR, 'ml_models', 'label_encoder.pkl')
 
-WEBSCRAPER_URL = os.getenv("WEBSCRAPER_URL", "http://localhost:8001")
+# Ensure backend package is in path
+sys.path.append(os.path.dirname(BASE_DIR))
+
+# Import logger
+try:
+    from backend.utils.logger import get_logger, log_dynamic_learning
+    logger = get_logger(__name__)
+except ImportError:
+    import logging
+    logger = logging.getLogger(__name__)
+    log_dynamic_learning = None
 
 # Import Database components
-# Ensure backend package is in path or installed
-sys.path.append(os.path.dirname(BASE_DIR)) # Add project root to path
-
 try:
-    from backend.database.database import SessionLocal, engine
-    from backend.database.models import Precaution, SymptomLog
-    from sqlalchemy import text
+    from backend.database.database import SessionLocal
+    from backend.database.models import Precaution, SymptomLog, TrainingData
 except ImportError:
-    print("Warning: Could not import Database components. SQL updates will fail.")
+    logger.warning("Could not import Database components. SQL updates will fail.")
     SessionLocal = None
+    TrainingData = None
 
+# Import web scraper
 from backend.services.web_scraper import scrape_disease_and_precautions, verify_symptom as verify_symptom_logic
+
 
 def scrape_disease(symptom):
     """
     Calls the local webscraping service to get diseases for a symptom.
     """
-    print(f"Scraping for symptom: {symptom}")
+    logger.info(f"Scraping for symptom: {symptom}")
     try:
         return scrape_disease_and_precautions(symptom)
     except Exception as e:
-        print(f"Scraping failed: {e}")
+        logger.error(f"Scraping failed: {e}")
         return {"diseases": [], "precautions": []}
+
 
 def verify_symptom_with_service(symptom):
     """
@@ -47,25 +58,26 @@ def verify_symptom_with_service(symptom):
     """
     return verify_symptom_logic(symptom)
 
+
 def load_training_data_from_sql():
     """
     Loads training data from PostgreSQL into a DataFrame.
     Table: TrainingData (disease, symptom_profile=JSON)
     """
     if not SessionLocal:
-        print("SQL Session missing, fallback to CSV.")
-        if os.path.exists(DATA_PATH): return pd.read_csv(DATA_PATH)
+        logger.warning("SQL Session missing, fallback to CSV.")
+        if os.path.exists(DATA_PATH):
+            return pd.read_csv(DATA_PATH)
         return pd.DataFrame()
 
     db = SessionLocal()
     try:
-        from backend.database.models import TrainingData
         rows = db.query(TrainingData).all()
         
         if not rows:
             # If SQL empty, try seeding from CSV if exists
             if os.path.exists(DATA_PATH):
-                print("Seeding SQL from CSV...")
+                logger.info("Seeding SQL from CSV...")
                 seed_df = pd.read_csv(DATA_PATH)
                 for _, row in seed_df.iterrows():
                     disease = row['Disease']
@@ -82,15 +94,19 @@ def load_training_data_from_sql():
             item['Disease'] = r.disease
             data_list.append(item)
         
-        return pd.DataFrame(data_list).fillna(0)
+        df = pd.DataFrame(data_list).fillna(0)
+        logger.info(f"Loaded {len(df)} records from SQL")
+        return df
+        
     except Exception as e:
-        print(f"Error loading from SQL: {e}")
-        print("Fallback: Loading from CSV...")
+        logger.error(f"Error loading from SQL: {e}")
+        logger.info("Fallback: Loading from CSV...")
         if os.path.exists(DATA_PATH):
             return pd.read_csv(DATA_PATH)
         return pd.DataFrame()
     finally:
         db.close()
+
 
 def save_new_training_data_to_sql(disease, symptom, profile_update=None):
     """
@@ -98,96 +114,194 @@ def save_new_training_data_to_sql(disease, symptom, profile_update=None):
     symptom: The new symptom being added (to ensure it exists in profile).
     profile_update: Full profile if available.
     """
-    if not SessionLocal: return False
+    if not SessionLocal:
+        return False
     
     db = SessionLocal()
     try:
-        from backend.database.models import TrainingData
-        
-        # 1. Update ALL rows to include this new symptom with 0 if not present
-        # actually, JSON is flexible, we might not need to explicit update all if we handle NaNs on load.
-        # But for 'hot' vector consistency, let's logic it out.
-        
         record = db.query(TrainingData).filter(TrainingData.disease == disease).first()
         if record:
             # Update existing
             profile = dict(record.symptom_profile)
-            profile[symptom] = 1 # Strong link
+            profile[symptom] = 1  # Strong link
             record.symptom_profile = profile
             record.updated_at = datetime.utcnow()
         else:
-            # Create new
-            # We need a base profile (all other symptoms 0? No, JSON handles sparsity)
-            # We just save what we know. The DataFrame loader fills NaNs with 0.
+            # Create new record
             profile = {symptom: 1}
             db.add(TrainingData(disease=disease, symptom_profile=profile))
         
         db.commit()
+        logger.info(f"SQL updated: disease='{disease}', symptom='{symptom}'")
         return True
+        
     except Exception as e:
-        print(f"SQL Save Error: {e}")
+        logger.error(f"SQL Save Error: {e}")
         db.rollback()
         return False
     finally:
         db.close()
 
+
+def update_precautions_db_entry(disease, symptom, precautions):
+    """
+    Adds precautions to the database for a disease.
+    """
+    if not SessionLocal or not precautions:
+        return False
+    
+    db = SessionLocal()
+    try:
+        for precaution_text in precautions:
+            # Check if already exists
+            exists = db.query(Precaution).filter(
+                Precaution.disease == disease,
+                Precaution.content == precaution_text
+            ).first()
+            
+            if not exists:
+                p = Precaution(
+                    disease=disease,
+                    content=precaution_text,
+                    severity_level='BASIC',
+                    source=f'web_scrape:{symptom}'
+                )
+                db.add(p)
+        
+        db.commit()
+        logger.info(f"Added {len(precautions)} precautions for {disease}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Precaution DB Error: {e}")
+        db.rollback()
+        return False
+    finally:
+        db.close()
+
+
+def update_csv_with_new_symptom(symptom, diseases):
+    """
+    Updates the CSV file with a new symptom column.
+    """
+    try:
+        if os.path.exists(DATA_PATH):
+            df = pd.read_csv(DATA_PATH)
+            
+            if symptom not in df.columns:
+                # Add new column with 0s
+                df[symptom] = 0
+                
+                # Set 1 for affected diseases
+                for disease in diseases:
+                    df.loc[df['Disease'] == disease, symptom] = 1
+                
+                df.to_csv(DATA_PATH, index=False)
+                logger.info(f"Added symptom '{symptom}' to CSV")
+                return True
+                
+    except Exception as e:
+        logger.error(f"CSV Update Error: {e}")
+        
+    return False
+
+
 def integrate_new_symptom(symptom):
     """
-    Logic:
-    User Input -> New Symptom
-    1. Verify (web)
-    2. Update SQL
-    3. Retrain
-    """
+    Main integration pipeline:
+    1. Verify symptom is valid (web search)
+    2. Scrape associated diseases and precautions
+    3. Update SQL database
+    4. Update CSV file
+    5. Retrain model
     
-    # 1. Verify
-    print(f"Verifying new symptom: {symptom}")
+    Returns:
+        bool: Success status
+    """
+    logger.info(f"Starting integration for new symptom: {symptom}")
+    
+    # 1. Verify symptom is real
     is_valid = verify_symptom_with_service(symptom)
     if not is_valid:
-        print(f"Symptom '{symptom}' could not be verified online. Skipping.")
+        logger.warning(f"Symptom '{symptom}' could not be verified online. Skipping.")
+        if log_dynamic_learning:
+            log_dynamic_learning(logger, symptom, [], False)
         return False
 
-    # 2. Scrape Data (Get Diseases)
+    # 2. Scrape diseases and precautions
     data = scrape_disease(symptom)
     diseases = data.get('diseases', [])
     precautions = data.get('precautions', [])
 
     if not diseases:
-        print(f"No diseases found for {symptom}. Cannot integrate.")
+        logger.warning(f"No diseases found for '{symptom}'. Cannot integrate.")
+        if log_dynamic_learning:
+            log_dynamic_learning(logger, symptom, [], False)
         return False
 
-    # 3. Update Data in SQL
+    logger.info(f"Found {len(diseases)} diseases for symptom '{symptom}'")
+
+    # 3. Update SQL database
     for disease in diseases:
         save_new_training_data_to_sql(disease, symptom)
-        # Also add precautions
         update_precautions_db_entry(disease, symptom, precautions)
-        print(f"Updated SQL for disease '{disease}' with symptom '{symptom}'")
 
-    # 4. Retrain Model
+    # 4. Update CSV file
+    update_csv_with_new_symptom(symptom, diseases)
+
+    # 5. Retrain model
     df = load_training_data_from_sql()
     if not df.empty:
         train_model(df)
     
+    if log_dynamic_learning:
+        log_dynamic_learning(logger, symptom, diseases, True)
+    
+    logger.info(f"✅ Successfully integrated symptom '{symptom}'")
     return True
 
-# ... update_precautions_db_entry ... (Keep as is, but ensures SQL used)
 
 def train_model(df=None):
     """
     Retrains the RandomForest model using data from SQL (or passed df).
     """
+    # Try to use the centralized ml_model training
+    try:
+        from backend.ml_models.ml_model import train_symptom_disease_model, save_model
+        
+        if df is None:
+            df = load_training_data_from_sql()
+            
+        if df.empty:
+            logger.warning("No data to train on.")
+            return
+        
+        model_data = train_symptom_disease_model(df)
+        if model_data:
+            save_model(model_data)
+            logger.info(f"✅ Model retrained. Accuracy: {model_data['accuracy']:.4f}")
+        return
+        
+    except ImportError:
+        pass
+    
+    # Fallback: local training
+    import joblib
+    from sklearn.preprocessing import LabelEncoder
+    from sklearn.ensemble import RandomForestClassifier
+    
     if df is None:
         df = load_training_data_from_sql()
         
     if df.empty:
-        print("No data to train on.")
+        logger.warning("No data to train on.")
         return
         
-    print(f"Training model on {len(df)} records...")
+    logger.info(f"Training model on {len(df)} records...")
     df = df.fillna(0)
     
     if 'Disease' not in df.columns:
-        print("Dataset missing 'Disease' column.")
+        logger.error("Dataset missing 'Disease' column.")
         return
 
     X = df.drop("Disease", axis=1)
@@ -212,13 +326,15 @@ def train_model(df=None):
         'symptom_columns': list(X.columns),
         'accuracy': score
     }
+    
     # Ensure dir exists
     os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
     
     joblib.dump(model_data, MODEL_PATH)
     joblib.dump(label_encoder, ENCODER_PATH)
 
-    print(f"✅ Model retrained using SQL data. Accuracy: {score:.4f}")
+    logger.info(f"✅ Model retrained. Accuracy: {score:.4f}")
+
 
 if __name__ == "__main__":
     train_model()
