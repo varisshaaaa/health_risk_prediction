@@ -11,12 +11,12 @@ import plotly.express as px
 API_URL = os.getenv("API_URL") or os.getenv("NEXT_PUBLIC_API_URL") or "http://localhost:8000"
 
 st.set_page_config(
-    page_title="AI Health Advisor V4.0",
+    page_title="AI Health Advisor V4.1",
     page_icon="🩺",
     layout="wide"
 )
 
-st.title("🩺 AI-Powered Health Advisory System V4.0")
+st.title("🩺 AI-Powered Health Advisory System V4.1")
 st.caption("Integrated Risk Assessment • Smart Symptom Learning • Dynamic Web Scraping")
 
 # ---------------- TABS ----------------
