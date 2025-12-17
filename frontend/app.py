@@ -8,7 +8,8 @@ import plotly.express as px
 # ---------------- CONFIG ----------------
 # ---------------- CONFIG ----------------
 # Support both standard Railway env var and local dev
-API_URL = os.getenv("API_URL") or os.getenv("NEXT_PUBLIC_API_URL") or "http://localhost:8000"
+Raw_API_URL = os.getenv("API_URL") or os.getenv("NEXT_PUBLIC_API_URL") or "http://localhost:8000"
+API_URL = Raw_API_URL.rstrip("/")
 
 st.set_page_config(
     page_title="AI Health Advisor V4.1",
@@ -18,6 +19,22 @@ st.set_page_config(
 
 st.title("🩺 AI-Powered Health Advisory System V4.1")
 st.caption("Integrated Risk Assessment • Smart Symptom Learning • Dynamic Web Scraping")
+
+# --- DEBUGGER SIDEBAR ---
+with st.sidebar:
+    st.header("🔧 Connection Status")
+    st.code(f"API_URL: {API_URL}")
+    if st.button("Test Connection"):
+        try:
+            r = requests.get(f"{API_URL}/health", timeout=5)
+            if r.status_code == 200:
+                st.success("✅ Online")
+                st.json(r.json())
+            else:
+                st.error(f"❌ {r.status_code}")
+                st.write(r.text)
+        except Exception as e:
+            st.error(f"❌ Failed: {e}")
 
 # ---------------- TABS ----------------
 tab1, tab2, tab3 = st.tabs(["User Advisory", "Instructor Dashboard", "Model Reports"])

@@ -26,7 +26,22 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown logic (if any)
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Integrated Health Risk Predictor", lifespan=lifespan)
+
+# CORS Configuration
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], # Allow all for Railway internal comms
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+@app.get("/")
+def read_root():
+    return {"message": "Health Risk Prediction API V4.1 is Online", "docs": "/docs"}
 
 app.include_router(health_router)
 

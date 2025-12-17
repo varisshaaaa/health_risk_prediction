@@ -40,9 +40,14 @@ async def integrate_and_reload(symptom):
         if disease_orchestrator.df is not None:
              symptom_processor.known_symptoms = [c for c in disease_orchestrator.df.columns if c != 'Disease']
 
-@router.get("/")
-def read_root():
-    return {"message": "Health Risk Prediction API V4.1 is Online", "docs": "/docs"}
+    if success:
+        # Reload orchestrator resources
+        disease_orchestrator.load_resources()
+        # Update processor known symptoms
+        if disease_orchestrator.df is not None:
+             symptom_processor.known_symptoms = [c for c in disease_orchestrator.df.columns if c != 'Disease']
+
+# Root endpoint moved to main.py
 
 # ... (rest of code)
 
