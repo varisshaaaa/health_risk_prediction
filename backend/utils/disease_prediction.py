@@ -8,11 +8,8 @@ import joblib
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 
-# Paths
-MODEL_PATH = os.path.join(BASE_DIR, "disease_model.pkl")
-ENCODER_PATH = os.path.join(BASE_DIR, "label_encoder.pkl")
-DATA_PATH = os.path.join(PROJECT_ROOT, "symptoms_and_disease.csv")
-PRECAUTIONS_PATH = os.path.join(PROJECT_ROOT, "backend", "precautions.csv")
+# Paths - Import from dynamic_learner to ensure single source of truth for persistent paths
+from backend.utils.dynamic_learner import MODEL_PATH, ENCODER_PATH, DATA_PATH, PRECAUTIONS_PATH
 
 class DiseaseRiskOrchestrator:
     def __init__(self):

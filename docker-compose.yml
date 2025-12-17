@@ -8,10 +8,25 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///./health.db
+      - WEBSCRAPER_URL=http://webscraping:8001
       # On Railway, DATABASE_URL is injected automatically
     volumes:
       - ./backend:/app/backend
       - ./symptoms_and_disease.csv:/app/symptoms_and_disease.csv
+      - ./backend/precautions.csv:/app/backend/precautions.csv
+    depends_on:
+      - webscraping
+
+  webscraping:
+    build:
+      context: .
+      dockerfile: webscraping/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=sqlite:///./webscraping.db
+    volumes:
+      - ./webscraping:/app/webscraping
 
   frontend:
     build:
