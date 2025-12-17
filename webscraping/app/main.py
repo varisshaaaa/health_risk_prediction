@@ -1,15 +1,16 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import List, Optional
 import uvicorn
 import os
 
-# Import services
-from .services.disease_scraper import scrape_disease_and_precautions
-from .services.symptom_verifier import verify_symptom
-from .db.database import init_db
+# Absolute imports (Railway-safe)
+from app.services.disease_scraper import scrape_disease_and_precautions
+from app.services.symptom_verifier import verify_symptom
 
 app = FastAPI(title="WebScraping Microservice")
+
+
+# ----------- Schemas -----------
 
 class ScrapeRequest(BaseModel):
     symptom: str
@@ -17,33 +18,38 @@ class ScrapeRequest(BaseModel):
 class VerifyRequest(BaseModel):
     symptom: str
 
-class DisesePrecautionRequest(BaseModel):
-    disease: str
 
-@app.on_event("startup")
-def on_startup():
-    init_db()
+# ----------- Routes -----------
 
-@app.get("/")
+@app.get("/health")
 def health_check():
     return {"status": "ok", "service": "webscraping"}
 
+
 @app.post("/verify/symptom")
 def verify_symptom_endpoint(request: VerifyRequest):
-    """
-    Verifies if a symptom exists/is valid via web search.
-    """
     is_valid = verify_symptom(request.symptom)
-    return {"symptom": request.symptom, "is_valid": is_valid}
+    return {
+        "symptom": request.symptom,
+        "is_valid": is_valid
+    }
+
 
 @app.post("/scrape/disease")
 def scrape_disease_endpoint(request: ScrapeRequest):
     """
-    Scrapes diseases and precautions associated with a symptom.
+    Scrapes diseases + precautions for a symptom.
     """
     data = scrape_disease_and_precautions(request.symptom)
-    # data format: {"diseases": [...], "precautions": [...]}
-    return data
+    return {
+        "symptom": request.symptom,
+        "diseases": data.get("diseases", []),
+        "precautions": data.get("precautions", [])
+    }
+
+
+# ----------- Entry Point -----------
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    port = int(os.getenv("PORT", 8001))  # Railway-safe
+    uvicorn.run("app.main:app", host="0.0.0.0", port=port)
