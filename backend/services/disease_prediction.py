@@ -154,41 +154,51 @@ class DiseaseRiskOrchestrator:
 
     def get_precautions(self, disease):
         """
-        Fetches precautions from both CSV and database.
-        Combines results from both sources with deduplication.
+        Fetches precautions from multiple sources with priority:
+        1. Database (PostgreSQL)
+        2. CSV file
+        3. Static precautions data (fallback)
+        
+        Combines results from all sources with deduplication.
         """
         self.reload_precautions()
         
         precautions = []
         
-        # Load from CSV
+        # Source 1: Load from database (highest priority - most up-to-date)
+        try:
+            from backend.database.database import SessionLocal, test_database_connection
+            from backend.database.models import Precaution
+            
+            if test_database_connection():
+                db = SessionLocal()
+                db_precautions = db.query(Precaution).filter(Precaution.disease == disease).all()
+                db_precautions_list = [p.content for p in db_precautions if p.content and str(p.content).strip()]
+                precautions.extend(db_precautions_list)
+                db.close()
+        except Exception as e:
+            print(f"Database precautions lookup failed for {disease}: {e}")
+        
+        # Source 2: Load from CSV
         if not self.precautions_df.empty:
-            # Handle different possible column names
             if 'Disease' in self.precautions_df.columns and 'Precaution' in self.precautions_df.columns:
                 rows = self.precautions_df[self.precautions_df['Disease'] == disease]
                 if not rows.empty:
                     csv_precautions = rows['Precaution'].unique().tolist()
                     precautions.extend([p for p in csv_precautions if p and str(p).strip()])
         
-        # Also load from database
-        try:
-            from backend.database.database import SessionLocal
-            from backend.database.models import Precaution
-            
-            db = SessionLocal()
-            db_precautions = db.query(Precaution).filter(Precaution.disease == disease).all()
-            db_precautions_list = [p.content for p in db_precautions if p.content and str(p.content).strip()]
-            precautions.extend(db_precautions_list)
-            db.close()
-        except Exception as e:
-            # Fallback if database access fails
-            import sys
-            if 'backend.utils.logger' in sys.modules:
-                from backend.utils.logger import get_logger
-                logger = get_logger(__name__)
-                logger.warning(f"Failed to load precautions from DB for {disease}: {e}")
-            else:
-                print(f"Warning: Failed to load precautions from DB for {disease}: {e}")
+        # Source 3: Static precautions fallback (if nothing found)
+        if not precautions:
+            try:
+                from backend.services.precautions_data import get_precautions_for_disease, get_generic_precautions
+                static_precs = get_precautions_for_disease(disease)
+                if static_precs:
+                    precautions.extend(static_precs)
+                else:
+                    # If disease not found in static data, use generic precautions
+                    precautions.extend(get_generic_precautions())
+            except ImportError:
+                print("Static precautions data not available")
         
         # Deduplicate while preserving order
         seen = set()

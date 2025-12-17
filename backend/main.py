@@ -9,22 +9,37 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(os.path.dirname(BASE_DIR))
 
 # Database
-from backend.database.database import engine, Base
+from backend.database.database import engine, Base, init_database, test_database_connection
 
 # API Router
 from backend.api.health import router as health_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Initialize Tables
+    # Startup: Initialize Database with proper testing and seeding
+    print("=" * 50)
+    print("🚀 Health Risk Predictor API Starting...")
+    print("=" * 50)
+    
     try:
-        print("Initializing Database Tables...")
-        Base.metadata.create_all(bind=engine)
-        print("Database Tables Initialized.")
+        # Test and initialize database
+        db_available = init_database()
+        if db_available:
+            print("✅ Database fully initialized with all tables and seed data")
+        else:
+            print("⚠️ Running without database - using CSV files only")
     except Exception as e:
-        print(f"WARNING: Database initialization failed. Functionality may be limited. Error: {e}")
+        print(f"⚠️ Database initialization error: {e}")
+        print("   Running in limited mode with CSV files only")
+    
+    print("=" * 50)
+    print("✅ API Ready to accept requests")
+    print("=" * 50)
+    
     yield
-    # Shutdown logic (if any)
+    
+    # Shutdown
+    print("👋 Shutting down Health Risk Predictor API...")
 
 from fastapi.middleware.cors import CORSMiddleware
 

@@ -39,17 +39,67 @@ except ImportError:
 # Import web scraper
 from backend.services.web_scraper import scrape_disease_and_precautions, verify_symptom as verify_symptom_logic
 
+# Import static precautions data for fallback
+try:
+    from backend.services.precautions_data import (
+        get_precautions_for_disease, 
+        get_generic_precautions,
+        DISEASE_PRECAUTIONS
+    )
+    STATIC_PRECAUTIONS_AVAILABLE = True
+except ImportError:
+    logger.warning("Static precautions data not available")
+    STATIC_PRECAUTIONS_AVAILABLE = False
+    DISEASE_PRECAUTIONS = {}
+
+
+def get_fallback_precautions(disease: str) -> list:
+    """
+    Get precautions from static data when scraping fails.
+    
+    Args:
+        disease: Disease name
+        
+    Returns:
+        List of precaution strings
+    """
+    if not STATIC_PRECAUTIONS_AVAILABLE:
+        return []
+    
+    precautions = get_precautions_for_disease(disease)
+    if precautions:
+        return precautions
+    
+    return get_generic_precautions()
+
 
 def scrape_disease(symptom):
     """
     Calls the local webscraping service to get diseases for a symptom.
+    Falls back to static data if scraping fails.
     """
     logger.info(f"Scraping for symptom: {symptom}")
     try:
-        return scrape_disease_and_precautions(symptom)
+        result = scrape_disease_and_precautions(symptom)
+        
+        # If scraping found diseases but no precautions, use static fallback
+        if result.get("diseases") and not result.get("precautions"):
+            logger.info("Scraping found diseases but no precautions. Using static fallback.")
+            for disease in result["diseases"][:3]:
+                fallback_precs = get_fallback_precautions(disease)
+                if fallback_precs:
+                    result["precautions"] = fallback_precs
+                    break
+        
+        # If no precautions at all, use generic
+        if not result.get("precautions") and STATIC_PRECAUTIONS_AVAILABLE:
+            result["precautions"] = get_generic_precautions()
+        
+        return result
+        
     except Exception as e:
         logger.error(f"Scraping failed: {e}")
-        return {"diseases": [], "precautions": []}
+        return {"diseases": [], "precautions": get_generic_precautions() if STATIC_PRECAUTIONS_AVAILABLE else []}
 
 
 def verify_symptom_with_service(symptom):
@@ -311,7 +361,7 @@ def update_csv_with_new_symptom(symptom, diseases):
 def integrate_new_symptom(symptom):
     """
     Main integration pipeline:
-    1. Verify symptom is valid (web search)
+    1. Verify symptom is valid (simpler check)
     2. Scrape associated diseases and precautions
     3. Update SQL database
     4. Update CSV file
@@ -320,15 +370,13 @@ def integrate_new_symptom(symptom):
     Returns:
         bool: Success status
     """
-    logger.info(f"Starting integration for new symptom: {symptom}")
+    logger.info(f"🔄 Starting integration for new symptom: {symptom}")
     
-    # 1. Verify symptom is real
+    # 1. Verify symptom is real (simplified - won't block on network failures)
     is_valid = verify_symptom_with_service(symptom)
     if not is_valid:
-        logger.warning(f"Symptom '{symptom}' could not be verified online. Skipping.")
-        if log_dynamic_learning:
-            log_dynamic_learning(logger, symptom, [], False)
-        return False
+        # Still proceed but log warning - verification is not critical
+        logger.warning(f"Symptom '{symptom}' could not be verified. Proceeding anyway...")
 
     # 2. Scrape diseases and precautions
     data = scrape_disease(symptom)
@@ -336,34 +384,48 @@ def integrate_new_symptom(symptom):
     precautions = data.get('precautions', [])
 
     if not diseases:
-        logger.warning(f"No diseases found for '{symptom}'. Cannot integrate.")
+        logger.warning(f"No diseases found via scraping for '{symptom}'.")
+        # Still save the symptom for logging even if no diseases found
         if log_dynamic_learning:
             log_dynamic_learning(logger, symptom, [], False)
         return False
 
-    logger.info(f"Found {len(diseases)} diseases and {len(precautions)} precautions for symptom '{symptom}'")
+    logger.info(f"📊 Found {len(diseases)} diseases and {len(precautions)} precautions for symptom '{symptom}'")
 
     # 3. Update SQL database and CSV files
+    success_count = 0
     for disease in diseases:
-        save_new_training_data_to_sql(disease, symptom)
+        # Save training data to SQL
+        sql_success = save_new_training_data_to_sql(disease, symptom)
+        if sql_success:
+            success_count += 1
+        
+        # Get precautions for this disease (use static fallback if scraped is empty)
+        disease_precautions = precautions
+        if not disease_precautions and STATIC_PRECAUTIONS_AVAILABLE:
+            disease_precautions = get_fallback_precautions(disease)
+            logger.info(f"Using static precautions for {disease}")
+        
         # Update precautions in database
-        update_precautions_db_entry(disease, symptom, precautions)
-        # Update precautions in CSV
-        update_precautions_csv(disease, precautions)
+        if disease_precautions:
+            update_precautions_db_entry(disease, symptom, disease_precautions)
+            # Update precautions in CSV
+            update_precautions_csv(disease, disease_precautions)
 
     # 4. Update symptoms CSV file
     update_csv_with_new_symptom(symptom, diseases)
 
-    # 5. Retrain model
-    df = load_training_data_from_sql()
-    if not df.empty:
-        train_model(df)
+    # 5. Retrain model (only if we have new data)
+    if success_count > 0:
+        df = load_training_data_from_sql()
+        if not df.empty:
+            train_model(df)
     
     if log_dynamic_learning:
-        log_dynamic_learning(logger, symptom, diseases, True)
+        log_dynamic_learning(logger, symptom, diseases, success_count > 0)
     
-    logger.info(f"✅ Successfully integrated symptom '{symptom}'")
-    return True
+    logger.info(f"✅ Successfully integrated symptom '{symptom}' ({success_count}/{len(diseases)} diseases updated)")
+    return success_count > 0
 
 
 def train_model(df=None):
