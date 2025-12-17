@@ -2,29 +2,22 @@ FROM python:3.9-slim
 
 WORKDIR /app
 
-# System dependencies
 RUN apt-get update && apt-get install -y \
-    libpq-dev \
-    gcc \
-    netcat-openbsd \
+    libpq-dev gcc netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt .
+# Copy backend requirements
+# Valid only if build context is REPO ROOT
+COPY backend/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend code (current folder → /app)
-COPY . .
+# Copy backend source code
+# Valid only if build context is REPO ROOT
+COPY backend ./backend
 
-# Make /app importable
+# Make backend importable
 ENV PYTHONPATH=/app
 
-# Pre-download nltk data
-RUN python -m nltk.downloader punkt stopwords wordnet omw-1.4
-
-ENV PORT=8000
 EXPOSE 8000
 
-# IMPORTANT: no "backend." prefix now
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
-
+CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8000"]
