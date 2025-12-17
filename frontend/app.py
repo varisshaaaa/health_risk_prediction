@@ -106,7 +106,7 @@ with tab1:
                     with r1:
                         # Use overall health risk score
                         score = result["overall_health_risk"]
-                        severity = result["disease_severity"]
+                        severity = result["severity"]
                         
                         color = "green" if score < 40 else "orange" if score < 70 else "red"
                         
@@ -114,11 +114,11 @@ with tab1:
                         st.progress(score / 100)
                     
                     with r2:
-                        st.metric("Predicted Condition", result["disease"])
+                        st.metric("Predicted Condition", result["predicted_disease"])
                         st.caption(f"Probability: {result.get('probability', 0):.1f}%")
                     
                     with r3:
-                        aq = result["air_quality"]
+                        aq = result["environmental_data"]
                         st.metric("Air Quality", f"{aq.get('status', 'N/A')}", help=f"AQI: {aq.get('aqi', 0)}")
                     
                     # --- SMART LEARNING ALERTS ---
@@ -139,7 +139,7 @@ with tab1:
                         st.markdown(result['advisory'])
                     
                     with c2:
-                        st.warning(f"**🛡️ Recommended Precautions for {result['disease']}**")
+                        st.warning(f"**🛡️ Recommended Precautions for {result['predicted_disease']}**")
                         precautions = result.get("precautions", [])
                         if precautions and precautions != ["Not available"]:
                              for p in precautions:
