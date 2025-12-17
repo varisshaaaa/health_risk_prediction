@@ -40,6 +40,10 @@ async def integrate_and_reload(symptom):
         if disease_orchestrator.df is not None:
              symptom_processor.known_symptoms = [c for c in disease_orchestrator.df.columns if c != 'Disease']
 
+@router.get("/")
+def read_root():
+    return {"message": "Health Risk Prediction API is Online", "docs": "/docs"}
+
 @router.get("/health")
 def health_check():
     return {"status": "ok", "service": "Integrated Health Backend"}
