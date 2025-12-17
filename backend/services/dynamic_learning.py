@@ -146,38 +146,140 @@ def save_new_training_data_to_sql(disease, symptom, profile_update=None):
 def update_precautions_db_entry(disease, symptom, precautions):
     """
     Adds precautions to the database for a disease.
+    
+    Args:
+        disease: Disease name
+        symptom: Symptom that triggered the scraping
+        precautions: List of precaution strings
+        
+    Returns:
+        bool: Success status
     """
-    if not SessionLocal or not precautions:
+    if not SessionLocal:
+        logger.warning("Database session not available. Cannot update precautions in DB.")
+        return False
+    
+    if not precautions:
+        logger.warning(f"No precautions provided for {disease}")
+        return False
+    
+    if not disease or not isinstance(disease, str):
+        logger.error(f"Invalid disease name: {disease}")
         return False
     
     db = SessionLocal()
+    added_count = 0
     try:
         for precaution_text in precautions:
+            if not precaution_text or not isinstance(precaution_text, str):
+                continue
+                
+            precaution_clean = precaution_text.strip()
+            if len(precaution_clean) < 10:
+                continue
+            
             # Check if already exists
             exists = db.query(Precaution).filter(
                 Precaution.disease == disease,
-                Precaution.content == precaution_text
+                Precaution.content == precaution_clean
             ).first()
             
             if not exists:
                 p = Precaution(
                     disease=disease,
-                    content=precaution_text,
+                    content=precaution_clean,
                     severity_level='BASIC',
                     source=f'web_scrape:{symptom}'
                 )
                 db.add(p)
+                added_count += 1
         
-        db.commit()
-        logger.info(f"Added {len(precautions)} precautions for {disease}")
-        return True
+        if added_count > 0:
+            db.commit()
+            logger.info(f"✅ Added {added_count} new precautions to database for {disease}")
+            return True
+        else:
+            logger.info(f"No new precautions to add to database for {disease} (all already exist)")
+            return True  # Still return True as this is not an error
         
     except Exception as e:
-        logger.error(f"Precaution DB Error: {e}")
+        logger.error(f"Precaution DB Error for {disease}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         db.rollback()
         return False
     finally:
         db.close()
+
+
+def update_precautions_csv(disease: str, precautions: list) -> bool:
+    """
+    Updates Precautions.csv file with new precautions.
+    Format: Disease,Precaution,Source
+    
+    Args:
+        disease: Disease name
+        precautions: List of precaution strings
+        
+    Returns:
+        bool: Success status
+    """
+    try:
+        # Read existing CSV or create new
+        if os.path.exists(PRECAUTIONS_PATH):
+            try:
+                df = pd.read_csv(PRECAUTIONS_PATH)
+                # Ensure correct column names - fix if wrong format
+                if 'Disease' not in df.columns or 'Precaution' not in df.columns:
+                    logger.warning(f"Precautions CSV has wrong format. Recreating with correct format.")
+                    df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+            except Exception as e:
+                logger.warning(f"Error reading Precautions CSV: {e}. Creating new file.")
+                df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+        else:
+            df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+        
+        if not precautions:
+            logger.warning(f"No precautions provided for {disease}")
+            return False
+        
+        # Add new precautions
+        new_rows = []
+        for precaution in precautions:
+            if not precaution or not isinstance(precaution, str):
+                continue
+                
+            precaution_clean = precaution.strip()
+            if len(precaution_clean) < 10:
+                continue
+                
+            # Check if already exists
+            exists = False
+            if not df.empty:
+                exists = not df[(df['Disease'] == disease) & (df['Precaution'] == precaution_clean)].empty
+            
+            if not exists:
+                new_rows.append({
+                    'Disease': disease,
+                    'Precaution': precaution_clean,
+                    'Source': 'web_scrape'
+                })
+        
+        if new_rows:
+            df_new = pd.DataFrame(new_rows)
+            df = pd.concat([df, df_new], ignore_index=True)
+            df.to_csv(PRECAUTIONS_PATH, index=False)
+            logger.info(f"✅ Added {len(new_rows)} precautions to CSV for {disease}")
+            return True
+        else:
+            logger.info(f"No new precautions to add for {disease} (all already exist)")
+            return False
+        
+    except Exception as e:
+        logger.error(f"CSV Precautions Update Error for {disease}: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        return False
 
 
 def update_csv_with_new_symptom(symptom, diseases):
@@ -239,14 +341,17 @@ def integrate_new_symptom(symptom):
             log_dynamic_learning(logger, symptom, [], False)
         return False
 
-    logger.info(f"Found {len(diseases)} diseases for symptom '{symptom}'")
+    logger.info(f"Found {len(diseases)} diseases and {len(precautions)} precautions for symptom '{symptom}'")
 
-    # 3. Update SQL database
+    # 3. Update SQL database and CSV files
     for disease in diseases:
         save_new_training_data_to_sql(disease, symptom)
+        # Update precautions in database
         update_precautions_db_entry(disease, symptom, precautions)
+        # Update precautions in CSV
+        update_precautions_csv(disease, precautions)
 
-    # 4. Update CSV file
+    # 4. Update symptoms CSV file
     update_csv_with_new_symptom(symptom, diseases)
 
     # 5. Retrain model

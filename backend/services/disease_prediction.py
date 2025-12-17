@@ -46,10 +46,26 @@ class DiseaseRiskOrchestrator:
 
     def reload_precautions(self):
         """Reloads precautions from CSV to pick up scraping updates."""
-        if os.path.exists(PRECAUTIONS_PATH):
-            self.precautions_df = pd.read_csv(PRECAUTIONS_PATH)
-        else:
-            self.precautions_df = pd.DataFrame()
+        try:
+            if os.path.exists(PRECAUTIONS_PATH):
+                self.precautions_df = pd.read_csv(PRECAUTIONS_PATH)
+                # Validate format - ensure correct columns exist
+                if not self.precautions_df.empty:
+                    if 'Disease' not in self.precautions_df.columns or 'Precaution' not in self.precautions_df.columns:
+                        print(f"Warning: Precautions CSV has incorrect format. Expected columns: Disease, Precaution, Source")
+                        print(f"Found columns: {list(self.precautions_df.columns)}")
+                        # Try to fix if old format
+                        if 'disease' in self.precautions_df.columns and 'precautions' in self.precautions_df.columns:
+                            # Old format detected - create empty DataFrame
+                            self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+                            print("Precautions CSV format corrected. Please re-scrape to populate data.")
+                        else:
+                            self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+            else:
+                self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+        except Exception as e:
+            print(f"Error loading precautions CSV: {e}")
+            self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
 
     def predict_diseases(self, symptoms_input, top_n=5):
         """
@@ -138,14 +154,52 @@ class DiseaseRiskOrchestrator:
 
     def get_precautions(self, disease):
         """
-        Fetches precautions from the loaded CSV.
+        Fetches precautions from both CSV and database.
+        Combines results from both sources with deduplication.
         """
         self.reload_precautions()
         
-        if self.precautions_df.empty:
-            return []
+        precautions = []
+        
+        # Load from CSV
+        if not self.precautions_df.empty:
+            # Handle different possible column names
+            if 'Disease' in self.precautions_df.columns and 'Precaution' in self.precautions_df.columns:
+                rows = self.precautions_df[self.precautions_df['Disease'] == disease]
+                if not rows.empty:
+                    csv_precautions = rows['Precaution'].unique().tolist()
+                    precautions.extend([p for p in csv_precautions if p and str(p).strip()])
+        
+        # Also load from database
+        try:
+            from backend.database.database import SessionLocal
+            from backend.database.models import Precaution
             
-        rows = self.precautions_df[self.precautions_df['Disease'] == disease]
-        if not rows.empty:
-            return rows['Precaution'].unique().tolist()
-        return []
+            db = SessionLocal()
+            db_precautions = db.query(Precaution).filter(Precaution.disease == disease).all()
+            db_precautions_list = [p.content for p in db_precautions if p.content and str(p.content).strip()]
+            precautions.extend(db_precautions_list)
+            db.close()
+        except Exception as e:
+            # Fallback if database access fails
+            import sys
+            if 'backend.utils.logger' in sys.modules:
+                from backend.utils.logger import get_logger
+                logger = get_logger(__name__)
+                logger.warning(f"Failed to load precautions from DB for {disease}: {e}")
+            else:
+                print(f"Warning: Failed to load precautions from DB for {disease}: {e}")
+        
+        # Deduplicate while preserving order
+        seen = set()
+        unique_precautions = []
+        for p in precautions:
+            if not p:
+                continue
+            p_str = str(p).strip()
+            p_lower = p_str.lower()
+            if p_lower and p_lower not in seen:
+                unique_precautions.append(p_str)
+                seen.add(p_lower)
+        
+        return unique_precautions

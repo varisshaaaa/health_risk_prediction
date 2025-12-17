@@ -100,8 +100,14 @@ async def predict_health_risk(request: PredictRequest, background_tasks: Backgro
     
     # Precautions
     precautions = []
-    if top_disease["disease"] != "System Initializing":
-        precautions = disease_orchestrator.get_precautions(top_disease["disease"])
+    if top_disease["disease"] != "System Initializing" and top_disease["disease"] != "Healthy / No Data":
+        try:
+            precautions = disease_orchestrator.get_precautions(top_disease["disease"])
+            if not precautions:
+                logger.info(f"No precautions found for {top_disease['disease']} in CSV or database")
+        except Exception as e:
+            logger.error(f"Error fetching precautions for {top_disease['disease']}: {e}")
+            precautions = []
     
     # Dynamic Learning: Handle new symptoms in background
     if new_candidates:
