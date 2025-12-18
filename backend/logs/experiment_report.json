@@ -1,0 +1,32 @@
+{
+  "timestamp": "2025-12-18T04:57:06.126167",
+  "experiments": {
+    "classification": {
+      "model_type": "RandomForestClassifier",
+      "accuracy": 0.0,
+      "f1_score": 0.0,
+      "n_classes": 41,
+      "n_features": 131,
+      "training_samples": 32,
+      "test_samples": 9
+    },
+    "regression": {
+      "model_type": "GradientBoostingRegressor",
+      "rmse": 0.1636,
+      "r2_score": 0.0844,
+      "training_samples": 32
+    },
+    "clustering": {
+      "model_type": "KMeans + PCA",
+      "n_clusters": 4,
+      "silhouette_score": 0.2564,
+      "pca_components": 10,
+      "variance_explained": 0.6033
+    }
+  },
+  "summary": {
+    "best_classification_accuracy": 0.0,
+    "best_regression_r2": 0.0844,
+    "clustering_quality": 0.2564
+  }
+}
