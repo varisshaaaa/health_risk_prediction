@@ -185,12 +185,52 @@ def train_classification_model_task(df, symptom_cols):
 
 
 # ============================================================
-# TASK 5: RISK REGRESSION MODEL
+# TASK 5: HEALTH IMPACT PREDICTOR (Gradient Boosting)
+# ============================================================
+@task(name="Train Health Impact Predictor")
+def train_health_impact_predictor_task():
+    """
+    Trains Gradient Boosting model to predict health risk from air quality data.
+    
+    This model is saved as: backend/ml_models/health_impact_predictor.pkl
+    Used in: backend/services/health_features.py
+    
+    Model: GradientBoostingRegressor
+    Features: AQI, PM2.5, PM10, NO2, CO, O3, SO2
+    Output: Health risk score (0-1)
+    """
+    import sys
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    
+    from backend.ml_models.train_health_impact import train_health_impact_model
+    
+    print("Training Health Impact Predictor (Gradient Boosting)...")
+    results = train_health_impact_model()
+    
+    results_summary = {
+        "model_type": "GradientBoostingRegressor",
+        "model_name": "health_impact_predictor",
+        "purpose": "Predict health risk from air quality (AQI + pollutants)",
+        "features": ["AQI", "PM2.5", "PM10", "NO2", "CO", "O3", "SO2"],
+        "test_rmse": float(round(results['test_rmse'], 4)),
+        "test_r2_score": float(round(results['test_r2'], 4)),
+        "test_mae": float(round(results['test_mae'], 4)),
+        "model_path": "backend/ml_models/health_impact_predictor.pkl"
+    }
+    
+    print(f"Health Impact Predictor Results: {json.dumps(results_summary, indent=2)}")
+    
+    return results_summary
+
+
+# ============================================================
+# TASK 5B: RISK REGRESSION MODEL (Symptom-based)
 # ============================================================
 @task(name="Train Risk Regression Model")
 def train_regression_model_task(df, symptom_cols):
     """
-    Trains a regression model to predict health risk scores.
+    Trains a regression model to predict health risk scores from symptoms.
+    This is a separate model from the health impact predictor.
     """
     from sklearn.ensemble import GradientBoostingRegressor
     from sklearn.model_selection import train_test_split
@@ -222,12 +262,14 @@ def train_regression_model_task(df, symptom_cols):
     
     results = {
         "model_type": "GradientBoostingRegressor",
+        "model_name": "symptom_risk_regressor",
+        "purpose": "Predict risk score from symptom count",
         "rmse": float(round(rmse, 4)),
         "r2_score": float(round(r2, 4)),
         "training_samples": int(len(X_train))
     }
     
-    print(f"Regression Model Results: {json.dumps(results, indent=2)}")
+    print(f"Symptom Risk Regression Model Results: {json.dumps(results, indent=2)}")
     
     return results
 
@@ -278,7 +320,7 @@ def clustering_analysis_task(df, symptom_cols):
 # TASK 7: MODEL EVALUATION COMPARISON
 # ============================================================
 @task(name="Compare Model Performance")
-def compare_models_task(classification_results, regression_results, clustering_results):
+def compare_models_task(classification_results, regression_results, clustering_results, health_impact_results=None):
     """
     Creates a comparison report of all ML experiments.
     """
@@ -287,12 +329,14 @@ def compare_models_task(classification_results, regression_results, clustering_r
         "timestamp": datetime.now().isoformat(),
         "experiments": {
             "classification": classification_results,
-            "regression": regression_results,
+            "health_impact_predictor": health_impact_results if health_impact_results else {},
+            "symptom_risk_regression": regression_results,
             "clustering": clustering_results
         },
         "summary": {
             "best_classification_accuracy": classification_results["accuracy"],
-            "best_regression_r2": regression_results["r2_score"],
+            "health_impact_r2": health_impact_results.get("test_r2_score", "N/A") if health_impact_results else "N/A",
+            "symptom_risk_r2": regression_results["r2_score"],
             "clustering_quality": clustering_results["silhouette_score"]
         }
     }
@@ -307,6 +351,17 @@ def compare_models_task(classification_results, regression_results, clustering_r
     print(f"Model Comparison Report saved to {report_path}")
     
     # Create Prefect artifact
+    health_impact_section = ""
+    if health_impact_results:
+        health_impact_section = f"""
+## Health Impact Predictor (Air Quality → Risk)
+- **Model**: {health_impact_results.get('model_type', 'GradientBoostingRegressor')}
+- **Purpose**: Predict health risk from AQI and pollutants
+- **Test R² Score**: {health_impact_results.get('test_r2_score', 'N/A')}
+- **Test RMSE**: {health_impact_results.get('test_rmse', 'N/A')}
+- **Saved to**: {health_impact_results.get('model_path', 'N/A')}
+"""
+    
     markdown_report = f"""
 # ML Experiment Results
 
@@ -314,8 +369,8 @@ def compare_models_task(classification_results, regression_results, clustering_r
 - **Model**: {classification_results['model_type']}
 - **Accuracy**: {classification_results['accuracy']}
 - **F1 Score**: {classification_results['f1_score']}
-
-## Regression (Risk Score)
+{health_impact_section}
+## Symptom Risk Regression
 - **Model**: {regression_results['model_type']}
 - **RMSE**: {regression_results['rmse']}
 - **R² Score**: {regression_results['r2_score']}
@@ -357,7 +412,8 @@ def send_notification_task(comparison, success=True):
     Timestamp: {timestamp}
     
     Classification Accuracy: {comparison['summary'].get('best_classification_accuracy', 'N/A')}
-    Regression R² Score: {comparison['summary'].get('best_regression_r2', 'N/A')}
+    Health Impact R² Score: {comparison['summary'].get('health_impact_r2', 'N/A')}
+    Symptom Risk R² Score: {comparison['summary'].get('symptom_risk_r2', 'N/A')}
     Clustering Quality: {comparison['summary'].get('clustering_quality', 'N/A')}
     ========================================
     """
@@ -392,11 +448,12 @@ def health_ml_pipeline():
     1. Data Ingestion
     2. Data Validation
     3. Feature Engineering
-    4. Classification Model Training
-    5. Regression Model Training
-    6. Clustering Analysis
-    7. Model Comparison
-    8. Notification
+    4. Classification Model Training (Random Forest)
+    5. Health Impact Predictor Training (Gradient Boosting for AQI)
+    6. Symptom Risk Regression Training (Gradient Boosting)
+    7. Clustering Analysis
+    8. Model Comparison
+    9. Notification
     """
     
     print("=" * 60)
@@ -416,17 +473,20 @@ def health_ml_pipeline():
         # Stage 3: Feature Engineering
         df_engineered, symptom_cols = feature_engineering_task(df)
         
-        # Stage 4: Train Classification Model
+        # Stage 4: Train Classification Model (Random Forest)
         class_results, model_data = train_classification_model_task(df_engineered, symptom_cols)
         
-        # Stage 5: Train Regression Model
+        # Stage 5: Train Health Impact Predictor (Gradient Boosting for AQI)
+        health_impact_results = train_health_impact_predictor_task()
+        
+        # Stage 6: Train Risk Regression Model (Gradient Boosting for symptoms)
         reg_results = train_regression_model_task(df_engineered, symptom_cols)
         
-        # Stage 6: Clustering Analysis
+        # Stage 7: Clustering Analysis
         cluster_results = clustering_analysis_task(df_engineered, symptom_cols)
         
-        # Stage 7: Compare Models
-        comparison = compare_models_task(class_results, reg_results, cluster_results)
+        # Stage 8: Compare Models
+        comparison = compare_models_task(class_results, reg_results, cluster_results, health_impact_results)
         
         # Stage 8: Notification
         send_notification_task(comparison, success=True)

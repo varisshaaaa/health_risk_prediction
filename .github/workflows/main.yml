@@ -1,79 +1,60 @@
-name: Health Risk System CI/CD
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: [ "main" ]
 
 jobs:
-  # ==========================================
-  # JOB 1: TEST
-  # ==========================================
   test:
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v3
 
     - name: Set up Python 3.9
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v3
       with:
         python-version: "3.9"
-        cache: 'pip'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install pytest flake8 httpx
+        pip install pytest flake8 requests pandas scikit-learn nltk beautifulsoup4 fastapi uvicorn sqlalchemy psycopg2-binary apscheduler streamlit plotly
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
         if [ -f backend/requirements.txt ]; then pip install -r backend/requirements.txt; fi
+        if [ -f webscraping/app/requirements.txt ]; then pip install -r webscraping/app/requirements.txt; fi
 
     - name: Lint with flake8
       run: |
-        # Stop build on syntax errors or undefined names
-        flake8 backend/ --count --select=E9,F63,F7,F82 --show-source --statistics
-        # Warnings only for style issues
-        flake8 backend/ --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+        # stop the build if there are Python syntax errors or undefined names
+        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        # exit-zero treats all errors as warnings.
+        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
     - name: Run Tests
+      # We will create these tests in the next step
       run: |
-        export PYTHONPATH=$PYTHONPATH:$(pwd)
-        pytest backend/tests/ -v --tb=short
-      env:
-        # Use SQLite for testing (no external DB needed)
-        DATABASE_URL: "sqlite:///./test.db"
+        pytest backend/tests/
 
-  # ==========================================
-  # JOB 2: DEPLOY TO RAILWAY
-  # ==========================================
   deploy:
     needs: test
     runs-on: ubuntu-latest
-    # Only deploy on push to main/master (not on PRs)
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    if: github.ref == 'refs/heads/main'
     
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-    
-    - name: Install Railway CLI
-      run: npm install -g @railway/cli
-
-    - name: Check Railway Token
-      run: |
-        if [ -z "${{ secrets.RAILWAY_TOKEN }}" ]; then
-          echo "ERROR: RAILWAY_TOKEN secret is not set!"
-          echo "Please add your Railway token as a GitHub Secret."
-          echo "Go to: Settings > Secrets and variables > Actions > New repository secret"
-          exit 1
-        fi
-        echo "Railway token found. Proceeding with deployment..."
-
-    - name: Deploy to Railway
-      env:
-        RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      run: |
-        echo "Deploying to Railway..."
-        railway up --detach
-        echo "Deployment initiated successfully!"
+      - uses: actions/checkout@v3
+      
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+        
+      - name: Deploy to Railway
+        env:
+          RAILWAY_TOKEN: "1347e0a2-73d0-48a4-be31-e263fefbbef9"
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "RAILWAY_TOKEN not set, skipping deployment."
+            exit 0
+          fi
+          railway up --detach

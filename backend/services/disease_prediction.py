@@ -46,26 +46,10 @@ class DiseaseRiskOrchestrator:
 
     def reload_precautions(self):
         """Reloads precautions from CSV to pick up scraping updates."""
-        try:
-            if os.path.exists(PRECAUTIONS_PATH):
-                self.precautions_df = pd.read_csv(PRECAUTIONS_PATH)
-                # Validate format - ensure correct columns exist
-                if not self.precautions_df.empty:
-                    if 'Disease' not in self.precautions_df.columns or 'Precaution' not in self.precautions_df.columns:
-                        print(f"Warning: Precautions CSV has incorrect format. Expected columns: Disease, Precaution, Source")
-                        print(f"Found columns: {list(self.precautions_df.columns)}")
-                        # Try to fix if old format
-                        if 'disease' in self.precautions_df.columns and 'precautions' in self.precautions_df.columns:
-                            # Old format detected - create empty DataFrame
-                            self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
-                            print("Precautions CSV format corrected. Please re-scrape to populate data.")
-                        else:
-                            self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
-            else:
-                self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
-        except Exception as e:
-            print(f"Error loading precautions CSV: {e}")
-            self.precautions_df = pd.DataFrame(columns=['Disease', 'Precaution', 'Source'])
+        if os.path.exists(PRECAUTIONS_PATH):
+            self.precautions_df = pd.read_csv(PRECAUTIONS_PATH)
+        else:
+            self.precautions_df = pd.DataFrame()
 
     def predict_diseases(self, symptoms_input, top_n=5):
         """
@@ -154,62 +138,14 @@ class DiseaseRiskOrchestrator:
 
     def get_precautions(self, disease):
         """
-        Fetches precautions from multiple sources with priority:
-        1. Database (PostgreSQL)
-        2. CSV file
-        3. Static precautions data (fallback)
-        
-        Combines results from all sources with deduplication.
+        Fetches precautions from the loaded CSV.
         """
         self.reload_precautions()
         
-        precautions = []
-        
-        # Source 1: Load from database (highest priority - most up-to-date)
-        try:
-            from backend.database.database import SessionLocal, test_database_connection
-            from backend.database.models import Precaution
+        if self.precautions_df.empty:
+            return []
             
-            if test_database_connection():
-                db = SessionLocal()
-                db_precautions = db.query(Precaution).filter(Precaution.disease == disease).all()
-                db_precautions_list = [p.content for p in db_precautions if p.content and str(p.content).strip()]
-                precautions.extend(db_precautions_list)
-                db.close()
-        except Exception as e:
-            print(f"Database precautions lookup failed for {disease}: {e}")
-        
-        # Source 2: Load from CSV
-        if not self.precautions_df.empty:
-            if 'Disease' in self.precautions_df.columns and 'Precaution' in self.precautions_df.columns:
-                rows = self.precautions_df[self.precautions_df['Disease'] == disease]
-                if not rows.empty:
-                    csv_precautions = rows['Precaution'].unique().tolist()
-                    precautions.extend([p for p in csv_precautions if p and str(p).strip()])
-        
-        # Source 3: Static precautions fallback (if nothing found)
-        if not precautions:
-            try:
-                from backend.services.precautions_data import get_precautions_for_disease, get_generic_precautions
-                static_precs = get_precautions_for_disease(disease)
-                if static_precs:
-                    precautions.extend(static_precs)
-                else:
-                    # If disease not found in static data, use generic precautions
-                    precautions.extend(get_generic_precautions())
-            except ImportError:
-                print("Static precautions data not available")
-        
-        # Deduplicate while preserving order
-        seen = set()
-        unique_precautions = []
-        for p in precautions:
-            if not p:
-                continue
-            p_str = str(p).strip()
-            p_lower = p_str.lower()
-            if p_lower and p_lower not in seen:
-                unique_precautions.append(p_str)
-                seen.add(p_lower)
-        
-        return unique_precautions
+        rows = self.precautions_df[self.precautions_df['Disease'] == disease]
+        if not rows.empty:
+            return rows['Precaution'].unique().tolist()
+        return []

@@ -100,14 +100,8 @@ async def predict_health_risk(request: PredictRequest, background_tasks: Backgro
     
     # Precautions
     precautions = []
-    if top_disease["disease"] != "System Initializing" and top_disease["disease"] != "Healthy / No Data":
-        try:
-            precautions = disease_orchestrator.get_precautions(top_disease["disease"])
-            if not precautions:
-                logger.info(f"No precautions found for {top_disease['disease']} in CSV or database")
-        except Exception as e:
-            logger.error(f"Error fetching precautions for {top_disease['disease']}: {e}")
-            precautions = []
+    if top_disease["disease"] != "System Initializing":
+        precautions = disease_orchestrator.get_precautions(top_disease["disease"])
     
     # Dynamic Learning: Handle new symptoms in background
     if new_candidates:
@@ -227,79 +221,3 @@ def release_retraining(background_tasks: BackgroundTasks):
             
     background_tasks.add_task(_train_task)
     return {"status": "Retraining started in background"}
-
-
-@router.get("/admin/db-status")
-def get_database_status():
-    """
-    Returns the status of all database tables including row counts.
-    Useful for verifying that dynamic learning is updating the database.
-    """
-    from backend.database.models import SymptomLog, TrainingData, Precaution
-    from backend.database.database import test_database_connection
-    
-    status = {
-        "database_connected": False,
-        "tables": {
-            "feature_store": {"count": 0, "status": "unknown"},
-            "symptom_logs": {"count": 0, "status": "unknown"},
-            "training_data": {"count": 0, "status": "unknown"},
-            "precautions": {"count": 0, "status": "unknown"}
-        },
-        "recent_symptom_logs": []
-    }
-    
-    # Test connection
-    try:
-        if not test_database_connection():
-            status["error"] = "Database connection failed"
-            return status
-        status["database_connected"] = True
-    except Exception as e:
-        status["error"] = f"Connection test error: {str(e)}"
-        return status
-    
-    db = SessionLocal()
-    try:
-        # Count feature_store (PredictionLog)
-        try:
-            count = db.query(PredictionLog).count()
-            status["tables"]["feature_store"] = {"count": count, "status": "ok"}
-        except Exception as e:
-            status["tables"]["feature_store"] = {"count": 0, "status": f"error: {str(e)}"}
-        
-        # Count symptom_logs
-        try:
-            count = db.query(SymptomLog).count()
-            status["tables"]["symptom_logs"] = {"count": count, "status": "ok"}
-            
-            # Get recent symptom logs
-            recent = db.query(SymptomLog).order_by(SymptomLog.timestamp.desc()).limit(10).all()
-            status["recent_symptom_logs"] = [
-                {"symptom": s.symptom_text, "count": s.count, "timestamp": str(s.timestamp)}
-                for s in recent
-            ]
-        except Exception as e:
-            status["tables"]["symptom_logs"] = {"count": 0, "status": f"error: {str(e)}"}
-        
-        # Count training_data
-        try:
-            count = db.query(TrainingData).count()
-            status["tables"]["training_data"] = {"count": count, "status": "ok"}
-        except Exception as e:
-            status["tables"]["training_data"] = {"count": 0, "status": f"error: {str(e)}"}
-        
-        # Count precautions
-        try:
-            count = db.query(Precaution).count()
-            status["tables"]["precautions"] = {"count": count, "status": "ok"}
-        except Exception as e:
-            status["tables"]["precautions"] = {"count": 0, "status": f"error: {str(e)}"}
-        
-        return status
-        
-    except Exception as e:
-        status["error"] = f"Query error: {str(e)}"
-        return status
-    finally:
-        db.close()
